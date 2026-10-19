@@ -2,6 +2,69 @@ isomd5sum provides a way of making use of the ISO9660 application data
 area to store md5sum data about the iso.  This allows you to check the
 iso given nothing more than the iso itself.
 
+In addition to the md5sum, the serial number of an X.509 certificate can
+optionally be embedded into the same application data area.  This is useful
+for recording which certificate an image is associated with.  The serial is
+stored exactly as reported by
+
+  openssl x509 -in cert.pem -noout -serial
+  serial=21B3CA436F1D60287FDA31DA91F5F697
+
+To implant both the md5sum and a certificate serial number into an iso::
+
+  implantisomd5 --cert /etc/pki/tls/certs/treasury-cert.pem image.iso
+
+The certificate may be in PEM or DER format.  The embedded serial can be
+read back together with the md5sum information::
+
+  checkisomd5 --md5sumonly image.iso
+
+Embedding a certificate serial does not affect md5 verification: the whole
+application data area is excluded from the checksum, so "checkisomd5" still
+passes.  Building isomd5sum requires OpenSSL (libcrypto) for this feature.
+
+Cryptographic signing
+----------------------
+The embedded md5sum can additionally be signed so that a consumer can prove
+the image's checksum was produced by the holder of a certificate's private
+key.  The signature is written to a detached file "<iso>.sig" (base64) next
+to the image, which keeps it independent of the limited application data
+area and works with RSA, ECDSA and Ed25519 keys.
+
+To sign while implanting::
+
+  implantisomd5 --cert cert.pem --sign-key key.pem image.iso
+  # writes image.iso and image.iso.sig
+
+To verify the signature against the certificate's public key::
+
+  checkisomd5 --cert cert.pem image.iso
+
+"checkisomd5" first performs the normal md5 media check and then reports the
+signature result as "Signature status: VALID" or "INVALID".  A failed or
+missing signature yields a non-zero exit status.  Note that the md5 check and
+the signature check are complementary: the md5 check detects tampering with
+the image content, while the signature proves the embedded md5 was authorized
+by the certificate holder.
+
+Distributing a signed image
+---------------------------
+Verification requires THREE things, which must be provided together:
+
+  1. the image            e.g.  rear.iso
+  2. the detached sig     e.g.  rear.iso.sig   (same directory, same base name)
+  3. the certificate      e.g.  rear-cert.pem  (public; safe to distribute)
+
+The signature file must sit next to the image with the exact name
+"<iso>.sig"; if it is moved away or renamed, "checkisomd5 --cert" reports
+"Signature status: MISSING".  The private key used for signing stays on the
+signing host and is NEVER needed (or shipped) for verification.
+
+Note: "checkisomd5 --cert" trusts the public key inside the given
+certificate; it does not validate the certificate's trust chain, expiry or
+revocation.  Validate the certificate itself separately if required, e.g.
+"openssl verify -CAfile ca-bundle.pem rear-cert.pem".
+
 isomd5sum is hosted on GitHub. The source can be
 grabbed via git with
   git clone https://github.com/rhinstaller/isomd5sum.git

@@ -21,6 +21,51 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/*
+ * libimplantisomd5 - write integrity (and optional certificate) metadata into
+ * an ISO9660 image.
+ *
+ * WHAT THIS DOES
+ *   An ISO9660 image has a Primary Volume Descriptor (PVD) that contains a
+ *   512-byte "Application Used" area (ECMA-119 8.4.32) which the filesystem
+ *   itself ignores. This tool stores its metadata there, so an image can be
+ *   verified later given nothing but the image (plus, for signatures, a
+ *   detached .sig file and a certificate).
+ *
+ * THE RECORD FORMAT written into the 512-byte area is a sequence of
+ * semicolon-terminated "KEY = VALUE" fields, padded with spaces:
+ *
+ *   ISO MD5SUM = <32 hex>;            md5 of the whole image (see note below)
+ *   SKIPSECTORS = <n>;                trailing sectors excluded from the md5
+ *   RHLISOSTATUS=<0|1>;               "supported media" flag
+ *   FRAGMENT SUMS = <60 hex>;         per-fragment checkpoint sums
+ *   FRAGMENT COUNT = <n>;             number of fragments
+ *   CERTIFICATE SERIAL = <hex>;       OPTIONAL - X.509 serial (see certificate.c)
+ *   THIS IS NOT THE SAME AS RUNNING MD5SUM ON THIS ISO!!   (human reminder)
+ *
+ *   The md5 is NOT a plain md5sum of the file: the 512-byte area itself and
+ *   the trailing SKIPSECTORS sectors are excluded. checkisomd5 reproduces the
+ *   exact same exclusions, which is why embedding metadata here does not break
+ *   verification. The parser that reads these fields back lives in
+ *   utilities.c (parsepvd).
+ *
+ * OPTIONAL CERTIFICATE SERIAL (--cert / "cert" argument)
+ *   Records WHICH certificate an image is associated with. This is only a
+ *   label; it is not a cryptographic proof. See certificate.c.
+ *
+ * OPTIONAL SIGNATURE (--sign-key / "signkey" argument)
+ *   Cryptographically signs the md5 hex string with a private key and writes a
+ *   detached base64 signature next to the image as "<iso>.sig". The signature
+ *   is kept out of the PVD area on purpose: an RSA-2048 signature (512 hex
+ *   chars) would not fit in the ~220 bytes of free space. checkisomd5 --cert
+ *   verifies it using the certificate's public key. See signature.c.
+ *
+ * ORDERING NOTE
+ *   The certificate serial is extracted, and the signature is produced, BEFORE
+ *   the PVD area is overwritten. That way an unreadable certificate or key
+ *   aborts the run without having modified the image.
+ */
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,7 +78,14 @@
 #include "md5.h"
 #include "libimplantisomd5.h"
 #include "utilities.h"
+#include "certificate.h"
+#include "signature.h"
 
+/*
+ * Append valstr to the in-memory appdata buffer at position *loc and advance
+ * *loc. Guards against overrunning the fixed 512-byte area; the fields are
+ * built up in memory first and written to the image in one go at the end.
+ */
 static int writeAppData(unsigned char *const appdata, const char *const valstr, size_t *loc, char **errstr) {
     size_t vallen = strlen(valstr);
     if (*loc + vallen >= APPDATA_SIZE) {
@@ -47,18 +99,60 @@ static int writeAppData(unsigned char *const appdata, const char *const valstr, 
     return 0;
 }
 
-int implantISOFile(const char *iso, int supported, int forceit, int quiet, char **errstr) {
+/*
+ * Public entry point: open the ISO by path and implant metadata.
+ *   iso       - path to the image, opened read/write.
+ *   cert      - optional path to an X.509 certificate; its serial is embedded.
+ *   signkey   - optional path to a PEM private key; if set, the md5 is signed
+ *               and the signature is written to "<iso>.sig".
+ *   supported - value for the RHLISOSTATUS flag.
+ *   forceit   - overwrite an application-data area that is already in use.
+ *   quiet     - suppress progress/diagnostic output when non-zero.
+ *   errstr    - set to a (possibly printf-format) message on failure.
+ * Returns 0 on success, negative on failure.
+ */
+int implantISOFile(const char *iso, const char *cert, const char *signkey, int supported, int forceit, int quiet, char **errstr) {
     int isofd = open(iso, O_RDWR | O_BINARY);
     if (isofd < 0) {
         *errstr = "Error - Unable to open file %s";
         return -1;
     }
-    int rc = implantISOFD(isofd, supported, forceit, quiet, errstr);
+
+    /* The detached signature, if requested, is written next to the ISO as
+     * "<iso>.sig". */
+    char *sigpath = NULL;
+    if (signkey != NULL && signkey[0] != '\0') {
+        const size_t len = strlen(iso) + 4 + 1; /* ".sig" + NUL */
+        sigpath = malloc(len);
+        if (sigpath == NULL) {
+            *errstr = "Out of memory.";
+            close(isofd);
+            return -1;
+        }
+        snprintf(sigpath, len, "%s.sig", iso);
+    }
+
+    int rc = implantISOFD(isofd, cert, signkey, sigpath, supported, forceit, quiet, errstr);
     close(isofd);
+    free(sigpath);
     return rc;
 }
 
-int implantISOFD(int isofd, int supported, int forceit, int quiet, char **errstr) {
+/*
+ * Core implant routine working on an already-open file descriptor.
+ * Takes sigpath (the precomputed "<iso>.sig" path) separately because an fd
+ * has no associated filename. All other parameters are as implantISOFile().
+ */
+int implantISOFD(int isofd, const char *cert, const char *signkey, const char *sigpath, int supported, int forceit, int quiet, char **errstr) {
+
+    /* If a certificate was supplied, extract its serial number up front so we
+     * fail before touching the ISO when the certificate is unreadable. */
+    char certserial[CERT_SERIAL_SIZE];
+    certserial[0] = '\0';
+    if (cert != NULL && cert[0] != '\0') {
+        if (certificate_serial(cert, certserial, errstr) != 0)
+            return -1;
+    }
 
     off_t pvd_offset;
     const off_t isosize = primary_volume_size(isofd, &pvd_offset);
@@ -77,7 +171,31 @@ int implantISOFD(int isofd, int supported, int forceit, int quiet, char **errstr
     if (!forceit) {
         for (size_t i = 0; i < APPDATA_SIZE; i++) {
             if (appdata[i] != ' ') {
-                *errstr = "Application data has been used - not implanting md5sum!";
+                if (!quiet) {
+                    /* Build a printable, NUL-terminated copy of the current
+                     * application data, trimming trailing blanks, so the user
+                     * can see what already occupies the area. */
+                    char current[APPDATA_SIZE + 1];
+                    size_t len = APPDATA_SIZE;
+                    while (len > 0 && (appdata[len - 1] == ' ' || appdata[len - 1] == '\0'))
+                        len--;
+                    for (size_t k = 0; k < len; k++) {
+                        unsigned char c = appdata[k];
+                        current[k] = (c >= 0x20 && c < 0x7f) ? (char) c : '.';
+                    }
+                    current[len] = '\0';
+
+                    fprintf(stderr,
+                            "The ISO9660 application data area (PVD offset %lld, %d bytes) "
+                            "already contains data.\n"
+                            "First non-blank byte is at offset %zu within the area.\n"
+                            "Current content: \"%s\"\n"
+                            "This is often an application identifier written by the ISO "
+                            "authoring tool (e.g. genisoimage/xorrisofs/mkisofs).\n"
+                            "Re-run with --force to overwrite it and implant the md5sum.\n",
+                            (long long)(pvd_offset + APPDATA_OFFSET), APPDATA_SIZE, i, current);
+                }
+                *errstr = "Application data has been used - not implanting md5sum! (use --force to overwrite)";
                 return -1;
             }
         }
@@ -130,6 +248,22 @@ int implantISOFD(int isofd, int supported, int forceit, int quiet, char **errstr
 
     char hashsum[HASH_SIZE + 1];
     md5sum(hashsum, &hashctx);
+
+    /* If a signing key was supplied, sign the md5 hex string and write a
+     * detached signature file. Do this before modifying the ISO so a signing
+     * failure aborts cleanly. */
+    if (signkey != NULL && signkey[0] != '\0') {
+        if (sigpath == NULL) {
+            *errstr = "Internal error: no signature path.";
+            return -1;
+        }
+        if (signature_sign_file(signkey, (const unsigned char *) hashsum,
+                                 strlen(hashsum), sigpath, errstr) != 0)
+            return -1;
+        if (!quiet)
+            printf("signature written to %s\n", sigpath);
+    }
+
     if (!quiet) {
         printf("Inserting md5sum into iso image...\n");
         printf("md5 = %s\n", hashsum);
@@ -178,6 +312,17 @@ int implantISOFD(int isofd, int supported, int forceit, int quiet, char **errstr
         return -1;
     if (writeAppData(appdata, ";", &loc, errstr))
         return -1;
+
+    if (certserial[0] != '\0') {
+        if (!quiet)
+            printf("certificate serial = %s\n", certserial);
+        if (writeAppData(appdata, "CERTIFICATE SERIAL = ", &loc, errstr))
+            return -1;
+        if (writeAppData(appdata, certserial, &loc, errstr))
+            return -1;
+        if (writeAppData(appdata, ";", &loc, errstr))
+            return -1;
+    }
 
     if (writeAppData(
             appdata, "THIS IS NOT THE SAME AS RUNNING MD5SUM ON THIS ISO!!", &loc, errstr))

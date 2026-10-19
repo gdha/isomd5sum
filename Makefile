@@ -2,7 +2,7 @@ PYTHON ?= python3
 PYTHONSITEPACKAGES := $(shell $(PYTHON) -c 'import site; print(site.getsitepackages()[0])')
 PYTHONINCLUDE := $(shell $(PYTHON)-config --includes)
 
-VERSION=1.2.5
+VERSION=1.2.6
 
 ifneq (,$(filter sparc64 ppc64 ppc64le x86_64 s390x aarch64 mips64 riscv64,$(shell uname -m)))
 LIBDIR = lib64
@@ -12,7 +12,7 @@ endif
 
 CFLAGS += -std=gnu11 -Wall -D_GNU_SOURCE=1 -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE=1 -D_LARGEFILE64_SOURCE=1 -fPIC $(PYTHONINCLUDE)
 
-OBJECTS = md5.o libimplantisomd5.o checkisomd5.o implantisomd5
+OBJECTS = md5.o libimplantisomd5.o checkisomd5.o certificate.o signature.o implantisomd5
 SOURCES = $(patsubst %.o,%.c,$(OBJECTS))
 LDFLAGS += -fPIC
 
@@ -24,17 +24,17 @@ all: implantisomd5 checkisomd5 pyisomd5sum.so libimplantisomd5.a libcheckisomd5.
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -O3 -o $@ $<
 
 implantisomd5: implantisomd5.o libimplantisomd5.a
-	$(CC) $(CPPFLAGS) $(CFLAGS) implantisomd5.o libimplantisomd5.a -lpopt $(LDFLAGS) -o implantisomd5
+	$(CC) $(CPPFLAGS) $(CFLAGS) implantisomd5.o libimplantisomd5.a -lpopt -lcrypto $(LDFLAGS) -o implantisomd5
 
 checkisomd5: checkisomd5.o libcheckisomd5.a
-	$(CC) $(CPPFLAGS) $(CFLAGS) checkisomd5.o libcheckisomd5.a -lpopt $(LDFLAGS) -o checkisomd5
+	$(CC) $(CPPFLAGS) $(CFLAGS) checkisomd5.o libcheckisomd5.a -lpopt -lcrypto $(LDFLAGS) -o checkisomd5
 
-libimplantisomd5.a: libimplantisomd5.a(libimplantisomd5.o md5.o utilities.o)
+libimplantisomd5.a: libimplantisomd5.a(libimplantisomd5.o md5.o utilities.o certificate.o signature.o)
 
-libcheckisomd5.a: libcheckisomd5.a(libcheckisomd5.o md5.o utilities.o)
+libcheckisomd5.a: libcheckisomd5.a(libcheckisomd5.o md5.o utilities.o certificate.o signature.o)
 
 pyisomd5sum.so: $(PYOBJS)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -shared -g -fpic $(PYOBJS) $(LDFLAGS) -o pyisomd5sum.so
+	$(CC) $(CPPFLAGS) $(CFLAGS) -shared -g -fpic $(PYOBJS) -lcrypto $(LDFLAGS) -o pyisomd5sum.so
 
 install: all install-bin install-python install-devel
 

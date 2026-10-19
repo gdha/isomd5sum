@@ -136,6 +136,8 @@ struct volume_info *const parsepvd(const int isofd) {
     result->fragmentcount = FRAGMENT_COUNT;
     result->offset = offset;
     result->isosize = isosize(aligned_buffer);
+    result->certserial[0] = '\0';
+    result->has_certserial = false;
 
     free(aligned_buffer);
 
@@ -178,6 +180,20 @@ struct volume_info *const parsepvd(const int isofd) {
         } else if ((len = matches_number(buffer, index, "FRAGMENT COUNT = ", (long int *) &result->fragmentcount))) {
             index = len;
             task |= TASK_FRAGCOUNT;
+        } else if ((len = starts_with(buffer + index, "CERTIFICATE SERIAL = "))) {
+            index += len;
+            /* The serial runs up to the next semicolon. It is optional, so it
+             * does not participate in the required-task completion mask. */
+            size_t j = 0;
+            for (; index < APPDATA_SIZE && buffer[index] != ';' &&
+                   j < CERT_SERIAL_SIZE - 1;
+                 index++, j++)
+                result->certserial[j] = buffer[index];
+            result->certserial[j] = '\0';
+            result->has_certserial = j > 0;
+            /* Skip any remaining characters up to the semicolon. */
+            for (; index < APPDATA_SIZE && buffer[index] != ';'; index++) {
+            }
         }
         /* Either something is wrong or it skips a semicolon. */
         index++;
@@ -211,14 +227,17 @@ bool validate_fragment(const MD5_CTX *const hashctx, const size_t fragment,
     memcpy(&ctx, hashctx, sizeof(ctx));
     MD5_Final(digest, &ctx);
     size_t j = (fragment - 1) * fragmentsize;
+    size_t hashlen = hashsums != NULL ? strlen(hashsums) : 0;
     for (size_t i = 0; i < MIN(fragmentsize, HASH_SIZE / 2); i++) {
         char tmp[3];
         /*
          * Using "3" to avoid compiler warning about truncation.
          */
         snprintf(tmp, 3, "%01x", digest[i]);
-        if (hashsums != NULL)
-            strncat(hashsums, tmp, 1);
+        if (hashsums != NULL) {
+            hashsums[hashlen++] = tmp[0];
+            hashsums[hashlen] = '\0';
+        }
         if (fragmentsums != NULL && tmp[0] != fragmentsums[j++])
             return false;
     }
@@ -231,10 +250,6 @@ bool validate_fragment(const MD5_CTX *const hashctx, const size_t fragment,
 void md5sum(char *const hashsum, MD5_CTX *const hashctx) {
     unsigned char digest[HASH_SIZE / 2];
     MD5_Final(digest, hashctx);
-    *hashsum = '\0';
-    for (size_t i = 0; i < HASH_SIZE / 2; i++) {
-        char tmp[3];
-        snprintf(tmp, 3, "%02x", digest[i]);
-        strncat(hashsum, tmp, 2);
-    }
+    for (size_t i = 0; i < HASH_SIZE / 2; i++)
+        snprintf(hashsum + i * 2, 3, "%02x", digest[i]);
 }

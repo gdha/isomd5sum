@@ -32,6 +32,7 @@
 #include "md5.h"
 #include "libcheckisomd5.h"
 #include "utilities.h"
+#include "signature.h"
 
 static void clear_appdata(unsigned char *const buffer, const size_t size, const off_t appdata_offset, const off_t offset) {
     static const ssize_t buffer_start = 0;
@@ -152,6 +153,65 @@ int printMD5SUM(const char *file) {
         printf("Fragment count: %zu\n", info->fragmentcount);
         printf("Supported ISO: %s\n", info->supported ? "yes" : "no");
     }
+    if (info->has_certserial)
+        printf("Certificate serial: %s\n", info->certserial);
     free(info);
     return 0;
+}
+
+/*
+ * Verify the detached signature of an ISO against a certificate.
+ *
+ * The signature (made by implantisomd5 --sign-key) covers the md5 hex string
+ * that is embedded in the PVD, so we:
+ *   1. parse the PVD to recover that embedded md5 string (the signed message),
+ *   2. locate the detached signature at "<file>.sig",
+ *   3. hand both, plus the certificate, to signature_verify_file().
+ *
+ * This is independent of the md5 media check in mediaCheckFile(): callers
+ * typically run the media check first (does the content match the embedded
+ * md5?) and then this (was that embedded md5 signed by the cert holder?).
+ * The enum signature_status result is mapped onto enum isomd5sum_sig_status
+ * for the public API in libcheckisomd5.h.
+ */
+int verifyISOCert(const char *file, const char *certpath) {
+    int isofd = open(file, O_RDONLY | O_BINARY);
+    if (isofd < 0)
+        return ISOMD5SUM_SIG_ERROR;
+
+    struct volume_info *const info = parsepvd(isofd);
+    close(isofd);
+    if (info == NULL || info->hashsum[0] == '\0') {
+        free(info);
+        return ISOMD5SUM_SIG_NO_MD5;
+    }
+
+    /* The signed message is the embedded md5 hex string. */
+    char msg[HASH_SIZE + 1];
+    strncpy(msg, info->hashsum, sizeof(msg));
+    msg[sizeof(msg) - 1] = '\0';
+    free(info);
+
+    /* The detached signature lives next to the ISO as "<file>.sig". */
+    const size_t len = strlen(file) + 4 + 1;
+    char *sigpath = malloc(len);
+    if (sigpath == NULL)
+        return ISOMD5SUM_SIG_ERROR;
+    snprintf(sigpath, len, "%s.sig", file);
+
+    char *errstr = NULL;
+    int rc = signature_verify_file(certpath, (const unsigned char *) msg,
+                                   strlen(msg), sigpath, &errstr);
+    free(sigpath);
+
+    switch (rc) {
+        case SIGNATURE_VALID:
+            return ISOMD5SUM_SIG_VALID;
+        case SIGNATURE_INVALID:
+            return ISOMD5SUM_SIG_INVALID;
+        case SIGNATURE_MISSING:
+            return ISOMD5SUM_SIG_MISSING;
+        default:
+            return ISOMD5SUM_SIG_ERROR;
+    }
 }

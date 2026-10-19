@@ -3,22 +3,33 @@
 checkisomd5 \(em check an MD5 checksum implanted by \fBimplantisomd5\fR
 .SH "SYNOPSIS"
 .PP
-\fBcheckisomd5\fR [\fB\-\-md5sumonly\fP]  [\fB\-\-verbose\fP]  [\fB\-\-gauge\fP]  [isofilename  | blockdevice ]
+\fBcheckisomd5\fR [\fB\-\-md5sumonly\fP]  [\fB\-\-verbose\fP]  [\fB\-\-gauge\fP]  [\fB\-\-cert\fP \fIcertfile\fP]  [isofilename  | blockdevice ]
 .SH "DESCRIPTION"
 .PP
 This manual page documents briefly the \fBcheckisomd5\fR command.  \fBcheckisomd5\fR is a program that checks an embedded MD5 checksum in a ISO9660 image (.iso), or block device.  The checksum is embedded by the corresponding \fBimplantisomd5\fR command.
 .PP
+With \fB\-\-cert\fP the detached signature \fIisofilename\fP.sig (created by \fBimplantisomd5 \-\-sign-key\fR) is verified against the public key in the certificate, and the result is reported as "Signature status: VALID" or "INVALID".  A VALID signature proves the embedded MD5 checksum was signed by the holder of the certificate's private key.
+.PP
+Verification requires three files provided together: the image itself, its detached signature \fIisofilename\fP.sig (in the same directory, with the same base name), and the certificate passed to \fB\-\-cert\fP.  If the \fI.sig\fP file is absent, the signature status is reported as "MISSING".  The private key is never needed for verification.
+.PP
+\fBcheckisomd5\fR trusts the public key contained in the supplied certificate; it does not check the certificate's trust chain, expiry or revocation.  Validate the certificate separately (for example with \fBopenssl verify\fR) if that is required.
+.PP
 The check can be aborted by pressing Esc key.
 .SH "EXIT STATUS"
 .PP
-Program returns exit status 0 if the checksum is correct, 1 if the checksum is incorrect or non-existent, or 2 if the check was aborted.
+Program returns exit status 0 if the checksum is correct, 1 if the checksum is incorrect or non-existent, or 2 if the check was aborted.  When \fB\-\-cert\fP is used, a failed signature verification also yields exit status 1.
 .SH "OPTIONS"
 .IP "\fB\-\-md5sumonly\fP" 10
-Do not check the target.  Instead, output human-readable information about the target's checksums.
+Do not check the target.  Instead, output human-readable information about the target's checksums.  If a certificate serial number was embedded by \fBimplantisomd5 \-\-cert\fR, it is printed as well.
+.IP "\fB\-\-cert\fP \fIcertfile\fP" 10
+After the media check, verify the detached signature \fIisofilename\fP.sig against the public key in \fIcertfile\fP (PEM or DER).
 .IP "\fB\-\-verbose\fP" 10
 Display human-readable progress as the target is checked.  Without this option, nothing is outputted except errors.
 .IP "\fB\-\-gauge\fP" 10
 Display a series of numbers from 0 to 100, corresponding to check progress.  This output can be piped to \fBdialog \-\-gauge\fR for a user-friendly progress bar.
+.SH "FILES"
+.IP "\fIisofilename\fP.sig" 10
+Detached base64 signature of the embedded MD5 checksum, produced by \fBimplantisomd5 \-\-sign-key\fR.  Must accompany the image for \fB\-\-cert\fP verification.
 .SH "SEE ALSO"
 .PP
 implantisomd5 (1).

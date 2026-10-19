@@ -69,7 +69,7 @@ static int outputCB(void *const co, const long long offset, const long long tota
 }
 
 static int usage(void) {
-    fprintf(stderr, "Usage: checkisomd5 [--md5sumonly] [--verbose] [--gauge] <isofilename>|<blockdevice>\n\n");
+    fprintf(stderr, "Usage: checkisomd5 [--md5sumonly] [--verbose] [--gauge] [--cert <certfile>] <isofilename>|<blockdevice>\n\n");
     return 1;
 }
 
@@ -121,11 +121,13 @@ int main(int argc, const char **argv) {
 
     int md5only = 0;
     int help = 0;
+    char *cert = NULL;
 
     struct poptOption options[] = {
         { "md5sumonly", 'o', POPT_ARG_NONE, &md5only, 0 },
         { "verbose", 'v', POPT_ARG_NONE, &data.verbose, 0 },
         { "gauge", 'g', POPT_ARG_NONE, &data.gauge, 0 },
+        { "cert", 'c', POPT_ARG_STRING, &cert, 0 },
         { "help", 'h', POPT_ARG_NONE, &help, 0 },
         { 0, 0, 0, 0, 0 }
     };
@@ -179,6 +181,45 @@ int main(int argc, const char **argv) {
     if (data.verbose)
         printf("\n");
 
+    int exit_rc = processExitStatus(rc);
+
+    /*
+     * Optional signature check (--cert). Runs AFTER the md5 media check and
+     * reports a separate "Signature status:" line. Any outcome other than
+     * VALID (invalid/missing/no-md5/error) is treated as a failure and forces
+     * a non-zero exit, but only if the md5 check itself passed - a prior md5
+     * failure already owns the exit code.
+     */
+    if (cert != NULL && cert[0] != '\0') {
+        int sig = verifyISOCert(args[0], cert);
+        switch (sig) {
+            case ISOMD5SUM_SIG_VALID:
+                fprintf(stderr, "Signature status: VALID (md5sum signed by the supplied certificate).\n");
+                break;
+            case ISOMD5SUM_SIG_INVALID:
+                fprintf(stderr, "Signature status: INVALID (signature does not match the certificate).\n");
+                if (exit_rc == 0)
+                    exit_rc = 1;
+                break;
+            case ISOMD5SUM_SIG_MISSING:
+                fprintf(stderr, "Signature status: MISSING (no %s.sig file found).\n", args[0]);
+                if (exit_rc == 0)
+                    exit_rc = 1;
+                break;
+            case ISOMD5SUM_SIG_NO_MD5:
+                fprintf(stderr, "Signature status: NA (no embedded md5sum to verify).\n");
+                if (exit_rc == 0)
+                    exit_rc = 1;
+                break;
+            default:
+                fprintf(stderr, "Signature status: ERROR (could not verify signature; "
+                                "the certificate may not match the signing key type).\n");
+                if (exit_rc == 0)
+                    exit_rc = 1;
+                break;
+        }
+    }
+
     poptFreeContext(optCon);
-    return processExitStatus(rc);
+    return exit_rc;
 }

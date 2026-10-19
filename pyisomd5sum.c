@@ -76,13 +76,15 @@ static PyObject *doCheckIsoMD5Sum(PyObject *s, PyObject *args) {
 
 static PyObject *doImplantIsoMD5Sum(PyObject *s, PyObject *args) {
     char *isofile, *errstr;
+    char *cert = NULL;
+    char *signkey = NULL;
     int forceit, supported;
     int rc;
 
-    if (!PyArg_ParseTuple(args, "sii", &isofile, &supported, &forceit))
+    if (!PyArg_ParseTuple(args, "sii|ss", &isofile, &supported, &forceit, &cert, &signkey))
         return NULL;
 
-    rc = implantISOFile(isofile, supported, forceit, 1, &errstr);
+    rc = implantISOFile(isofile, cert, signkey, supported, forceit, 1, &errstr);
 
     return Py_BuildValue("i", rc);
 }

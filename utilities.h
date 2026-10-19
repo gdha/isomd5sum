@@ -27,6 +27,7 @@
 #include <sys/types.h>
 
 #include "md5.h"
+#include "certificate.h"
 
 #ifdef _WIN32
 int getpagesize() { return 2048; }
@@ -61,6 +62,8 @@ int getpagesize() { return 2048; }
 struct volume_info {
     char hashsum[HASH_SIZE + 1];
     char fragmentsums[FRAGMENT_SUM_SIZE + 1];
+    char certserial[CERT_SERIAL_SIZE]; /* embedded X.509 serial, "" if none    */
+    bool has_certserial;               /* true if a serial was present/parsed   */
     size_t supported;
     size_t fragmentcount;
     off_t offset;

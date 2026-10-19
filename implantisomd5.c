@@ -26,7 +26,7 @@
 #include "libimplantisomd5.h"
 
 static int usage(void) {
-    fprintf(stderr, "implantisomd5:         implantisomd5 [--force] [--supported-iso] <isofilename>\n");
+    fprintf(stderr, "implantisomd5:         implantisomd5 [--force] [--supported-iso] [--cert <certfile>] [--sign-key <keyfile>] <isofilename>\n");
     return 1;
 }
 
@@ -36,10 +36,14 @@ int main(int argc, const char **argv) {
     int forceit = 0;
     int supported = 0;
     int help = 0;
+    char *cert = NULL;
+    char *signkey = NULL;
 
     struct poptOption options[] = {
         { "force", 'f', POPT_ARG_NONE, &forceit, 0 },
         { "supported-iso", 'S', POPT_ARG_NONE, &supported, 0 },
+        { "cert", 'c', POPT_ARG_STRING, &cert, 0 },
+        { "sign-key", 'k', POPT_ARG_STRING, &signkey, 0 },
         { "help", 'h', POPT_ARG_NONE, &help, 0 },
         { 0, 0, 0, 0, 0 }
     };
@@ -66,7 +70,7 @@ int main(int argc, const char **argv) {
         return usage();
     }
 
-    rc = implantISOFile(args[0], supported, forceit, 0, &errstr);
+    rc = implantISOFile(args[0], cert, signkey, supported, forceit, 0, &errstr);
     if (rc) {
         fprintf(stderr, "ERROR: ");
         fprintf(stderr, errstr, args[0]);
