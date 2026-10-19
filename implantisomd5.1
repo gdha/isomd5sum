@@ -6,15 +6,15 @@ implantisomd5 \(em implant an MD5 checksum in an ISO9660 image
 \fBimplantisomd5\fR [\fB\-\-force\fP]  [\fB\-\-supported-iso\fP]  [\fB\-\-cert\fP \fIcertfile\fP]  [\fB\-\-sign-key\fP \fIkeyfile\fP]  [isofilename]
 .SH "DESCRIPTION"
 .PP
-This manual page documents briefly the \fBimplantisomd5\fR command. \fBimplantisomd5\fR is a program that embeds an MD5 checksum in an unused section of and ISO9660 (.iso) image.  This checksum can later be compared to the .iso, or a block device, using the corresponding \fBcheckisomd5\fR command.
+This manual page documents briefly the \fBimplantisomd5\fR command. \fBimplantisomd5\fR is a program that embeds an MD5 checksum in an unused section of an ISO9660 (.iso) image.  This checksum can later be compared to the .iso, or a block device, using the corresponding \fBcheckisomd5\fR command.
 .PP
 Optionally, the serial number of an X.509 certificate can also be embedded alongside the checksum.  The serial number is stored exactly as reported by \fBopenssl x509 \-noout \-serial\fR and can be read back with \fBcheckisomd5 \-\-md5sumonly\fR.
 .PP
 With \fB\-\-sign-key\fP the embedded MD5 checksum is cryptographically signed with the given private key and a detached base64 signature is written to \fIisofilename\fP.sig.  The signature can later be verified with \fBcheckisomd5 \-\-cert\fR using the corresponding certificate.  RSA, ECDSA and Ed25519 keys are supported.
 .SH "OPTIONS"
-.IP "\fB\-\-force\fP" 10
+.IP "\fB\-f\fP, \fB\-\-force\fP" 10
 Force an existing checksum to be overwritten.
-.IP "\fB\-\-supported-iso\fP" 10
+.IP "\fB\-S\fP, \fB\-\-supported-iso\fP" 10
 Indicate that the image will be written to a "supported" media, such as pressed CD.  On Red Hat-based Anaconda installers, this bypasses the prompt to check the CD.
 .IP "\fB\-\-cert\fP \fIcertfile\fP" 10
 Read the X.509 certificate from \fIcertfile\fP (PEM or DER) and embed its serial number into the ISO image.

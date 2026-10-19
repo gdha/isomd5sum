@@ -1,5 +1,5 @@
 /*
- * simple program to insert an md5sum into application data area of iso99660
+ * simple program to insert an md5sum into application data area of iso9660
  * Copyright (C) 2001-2013 Red Hat, Inc.
  * Michael Fulbright <msf@redhat.com>
  *
@@ -26,7 +26,7 @@
 #include "libimplantisomd5.h"
 
 static int usage(void) {
-    fprintf(stderr, "implantisomd5:         implantisomd5 [--force] [--supported-iso] [--cert <certfile>] [--sign-key <keyfile>] <isofilename>\n");
+    fprintf(stderr, "Usage: implantisomd5 [--force] [--supported-iso] [--cert <certfile>] [--sign-key <keyfile>] <isofilename>\n\n");
     return 1;
 }
 

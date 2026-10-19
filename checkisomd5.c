@@ -1,5 +1,5 @@
 /*
- * checkosmd5 - simple program to check implanted md5sum
+ * checkisomd5 - simple program to check implanted md5sum
  * Copyright (C) 2001-2013 Red Hat, Inc.
  * Michael Fulbright <msf@redhat.com>
  *

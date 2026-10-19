@@ -86,7 +86,7 @@ static size_t matches_number(char *const buffer, size_t index,
     index += len;
     if (len > 0UL && index < APPDATA_SIZE) {
         char tmp[APPDATA_SIZE];
-        /* The number should be every until the semicolon. */
+        /* The number should be everything until the semicolon. */
         char *ptr = tmp;
         for (; index < APPDATA_SIZE && buffer[index] != ';';
              ptr++, index++)

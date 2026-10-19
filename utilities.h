@@ -43,7 +43,7 @@ int getpagesize() { return 2048; }
 #define HASH_SIZE 32
 /* Length in characters of string used for fragment md5sum checking */
 #define FRAGMENT_SUM_SIZE 60UL
-/* FRAGMENT_COUNT must be an integral divisor or FRAGMENT_SUM_SIZE */
+/* FRAGMENT_COUNT must be an integral divisor of FRAGMENT_SUM_SIZE */
 /* 60 => 2, 3, 4, 5, 6, 10, 12, 15, 20, or 30 */
 #define FRAGMENT_COUNT 20UL
 /* Size offset according to ECMA-119 8.4.8 volume space size in big endian

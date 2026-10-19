@@ -32,7 +32,7 @@ except NameError:
 with tempfile.TemporaryDirectory(prefix="isomd5test-") as tmpdir:
     # Write temporary data to iso test dir
     with open(tmpdir+"/TEST-DATA", "w") as f:
-        # Write more data base on cmdline arg
+        # Write more data based on cmdline arg
         for x in range(0,iso_size):
             f.write("A" * 1024)
 
