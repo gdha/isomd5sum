@@ -42,15 +42,20 @@ static unsigned char *read_primary_volume_descriptor(const int fd, off_t *const 
     }
     unsigned char *sector_buffer;
     sector_buffer = aligned_alloc((size_t) getpagesize(), SECTOR_SIZE * sizeof(*sector_buffer));
+    if (sector_buffer == NULL) {
+        return NULL;
+    }
     /* Read n volume descriptors. */
     for (;;) {
-        if (read(fd, sector_buffer, SECTOR_SIZE) == -1) {
+        /* A short read means end of file (or an error), so there is no PVD. */
+        if (read(fd, sector_buffer, SECTOR_SIZE) != SECTOR_SIZE) {
             free(sector_buffer);
             return NULL;
         }
         if (sector_buffer[0] == PRIMARY) {
             break;
         } else if (sector_buffer[0] == SET_TERMINATOR) {
+            free(sector_buffer);
             return NULL;
         }
         nbyte *= SECTOR_SIZE;

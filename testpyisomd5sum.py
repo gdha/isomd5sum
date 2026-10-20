@@ -49,6 +49,19 @@ with tempfile.TemporaryDirectory(prefix="isomd5test-") as tmpdir:
 (rstr, pass_all) = pass_fail(pyisomd5sum.implantisomd5sum("testiso.iso", 1, 0), 0, True)
 print("Implanting -> %s" % rstr)
 
+# files without a primary volume descriptor must not hang (issue #37)
+with open("empty.iso", "wb") as f:
+    pass
+(rstr, pass_all) = pass_fail(pyisomd5sum.checkisomd5sum("empty.iso"), -1, pass_all)
+print("Checking empty file -> %s" % rstr)
+(rstr, pass_all) = pass_fail(pyisomd5sum.implantisomd5sum("empty.iso", 1, 0), -1, pass_all)
+print("Implanting empty file -> %s" % rstr)
+with open("empty.iso", "wb") as f:
+    f.write(b"\0" * 40000)
+(rstr, pass_all) = pass_fail(pyisomd5sum.checkisomd5sum("empty.iso"), -1, pass_all)
+print("Checking zero filled file -> %s" % rstr)
+os.unlink("empty.iso")
+
 # do it again without forcing, should get error
 (rstr, pass_all) = pass_fail(pyisomd5sum.implantisomd5sum("testiso.iso", 1, 0), -1, pass_all)
 print("Implanting again w/o forcing -> %s" % rstr)
