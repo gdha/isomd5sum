@@ -22,7 +22,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <popt.h>
+#include <sys/select.h>
 #include <termios.h>
+#include <unistd.h>
 
 #include "md5.h"
 #include "libcheckisomd5.h"
@@ -33,7 +35,7 @@ struct progressCBData {
     int gaugeat;
 };
 
-int user_bailing_out(void) {
+static int user_bailing_out(void) {
     struct timeval timev;
     fd_set rfds;
 
@@ -77,7 +79,7 @@ static int usage(void) {
  *
  * return 1 for failures, 0 for good checksum and 2 if aborted.
  */
-int processExitStatus(const int rc) {
+static int processExitStatus(const int rc) {
     char *result;
     int exit_rc;
 
@@ -169,14 +171,17 @@ int main(int argc, const char **argv) {
 
     printf("Press [Esc] to abort check.\n");
 
+    /* Only change the terminal settings if stdin is a terminal. */
     static struct termios oldt;
-    struct termios newt;
-    tcgetattr(0, &oldt);
-    newt = oldt;
-    newt.c_lflag &= ~(ICANON | ECHO | ECHONL | ISIG | IEXTEN);
-    tcsetattr(0, TCSANOW, &newt);
+    const int tty = isatty(0) && tcgetattr(0, &oldt) == 0;
+    if (tty) {
+        struct termios newt = oldt;
+        newt.c_lflag &= ~(ICANON | ECHO | ECHONL | ISIG | IEXTEN);
+        tcsetattr(0, TCSANOW, &newt);
+    }
     rc = mediaCheckFile(args[0], outputCB, &data);
-    tcsetattr(0, TCSANOW, &oldt);
+    if (tty)
+        tcsetattr(0, TCSANOW, &oldt);
 
     if (data.verbose)
         printf("\n");
