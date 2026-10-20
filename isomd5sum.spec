@@ -1,3 +1,9 @@
+# The Makefile compiles the C binaries with -O3 and no -g, so no useful
+# debuginfo is produced. Disable the automatic -debuginfo/-debugsource
+# subpackages to avoid the fatal "Empty %files file debugsourcefiles.list"
+# error on EL9+.
+%global debug_package %{nil}
+
 Name:           isomd5sum
 Version:        1.2.6
 Release:        1%{?dist}
