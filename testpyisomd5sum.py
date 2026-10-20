@@ -61,12 +61,18 @@ print("Implanting again forcing -> %s" % rstr)
 (rstr, pass_all) = pass_fail(pyisomd5sum.checkisomd5sum("testiso.iso"), 1, pass_all)
 print("Checking -> %s" % rstr)
 
+callback_ok = True
 def callback(offset, total):
+    global callback_ok
     print("    %s - %s" % (offset, total))
+    if not 0 <= offset <= total:
+        callback_ok = False
 
 print("Run with callback, prints offset and total")
 (rstr, pass_all) = pass_fail(pyisomd5sum.checkisomd5sum("testiso.iso", callback), 1, pass_all)
 print(rstr)
+(rstr, pass_all) = pass_fail(callback_ok, True, pass_all)
+print("Checking callback offset is within total -> %s" % rstr)
 
 def callback_abort(offset, total):
     print("    %s - %s" % (offset, total))

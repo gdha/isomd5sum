@@ -63,6 +63,10 @@ static enum isomd5sum_status checkmd5sum(int isofd, checkCallback cb, void *cbda
     const size_t buffer_size = NUM_SYSTEM_SECTORS * SECTOR_SIZE;
     unsigned char *buffer;
     buffer = aligned_alloc((size_t) getpagesize(), buffer_size * sizeof(*buffer));
+    if (buffer == NULL) {
+        free(info);
+        return ISOMD5SUM_CHECK_FAILED;
+    }
 
     size_t previous_fragment = 0UL;
     off_t offset = 0LL;
@@ -78,7 +82,7 @@ static enum isomd5sum_status checkmd5sum(int isofd, checkCallback cb, void *cbda
          * size from where it started up to the end of the block it pre-fetched
          * from a cd drive.
          */
-        if (nread > nbyte) {
+        if ((size_t) nread > nbyte) {
             nread = nbyte;
             lseek(isofd, offset + nread, SEEK_SET);
         }
@@ -111,8 +115,9 @@ static enum isomd5sum_status checkmd5sum(int isofd, checkCallback cb, void *cbda
     }
     free(buffer);
 
+    /* Report completion, the skipped sectors are not part of the total. */
     if (cb)
-        cb(cbdata, (long long) info->isosize, (long long) total_size);
+        cb(cbdata, (long long) total_size, (long long) total_size);
 
     char hashsum[HASH_SIZE + 1];
     md5sum(hashsum, &hashctx);
