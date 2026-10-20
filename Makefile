@@ -29,9 +29,16 @@ implantisomd5: implantisomd5.o libimplantisomd5.a
 checkisomd5: checkisomd5.o libcheckisomd5.a
 	$(CC) $(CPPFLAGS) $(CFLAGS) checkisomd5.o libcheckisomd5.a -lpopt -lcrypto $(LDFLAGS) -o checkisomd5
 
-libimplantisomd5.a: libimplantisomd5.a(libimplantisomd5.o md5.o utilities.o certificate.o signature.o)
+IMPLANT_AR_OBJS = libimplantisomd5.o md5.o utilities.o certificate.o signature.o
+CHECK_AR_OBJS   = libcheckisomd5.o md5.o utilities.o certificate.o signature.o
 
-libcheckisomd5.a: libcheckisomd5.a(libcheckisomd5.o md5.o utilities.o certificate.o signature.o)
+libimplantisomd5.a: $(IMPLANT_AR_OBJS)
+	rm -f $@
+	$(AR) rcs $@ $(IMPLANT_AR_OBJS)
+
+libcheckisomd5.a: $(CHECK_AR_OBJS)
+	rm -f $@
+	$(AR) rcs $@ $(CHECK_AR_OBJS)
 
 pyisomd5sum.so: $(PYOBJS)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -shared -g -fpic $(PYOBJS) -lcrypto $(LDFLAGS) -o pyisomd5sum.so
