@@ -63,11 +63,12 @@ static off_t isosize(const unsigned char *const buffer) {
     /*
      * Doing multiplications so that it can be guaranteed that the big endian
      * number is converted to the systems endianness without knowing the
-     * endianness of the system.
+     * endianness of the system. The bytes are widened to off_t first since
+     * the size does not fit into an int if the most significant bit is set.
      */
-    off_t result = buffer[SIZE_OFFSET] * 0x1000000 +
-                   buffer[SIZE_OFFSET + 1] * 0x10000 +
-                   buffer[SIZE_OFFSET + 2] * 0x100 + buffer[SIZE_OFFSET + 3];
+    off_t result = (off_t) buffer[SIZE_OFFSET] * 0x1000000 +
+                   (off_t) buffer[SIZE_OFFSET + 1] * 0x10000 +
+                   (off_t) buffer[SIZE_OFFSET + 2] * 0x100 + (off_t) buffer[SIZE_OFFSET + 3];
     result *= SECTOR_SIZE;
     return result;
 }
