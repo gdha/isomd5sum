@@ -72,5 +72,40 @@ archive:
 	@git archive --format=tar --prefix=isomd5sum-$(VERSION)/ HEAD |bzip2 > isomd5sum-$(VERSION).tar.bz2
 	@echo "The final archive is in isomd5sum-$(VERSION).tar.bz2"
 
+# ── RPM packaging ─────────────────────────────────────────────────────────────
+RPMBUILD    ?= rpmbuild
+RPMTOPDIR   ?= $(HOME)/rpmbuild
+SRCRPMDIR    = $(RPMTOPDIR)/SRPMS
+RPMDIR       = $(RPMTOPDIR)/RPMS
+SPECFILE     = isomd5sum.spec
+
+# Prepare the rpmbuild tree and drop the source tarball in place.
+rpmprep: archive
+	@mkdir -p $(RPMTOPDIR)/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+	@cp isomd5sum-$(VERSION).tar.bz2 $(RPMTOPDIR)/SOURCES/
+	@cp $(SPECFILE) $(RPMTOPDIR)/SPECS/
+	@echo "rpmbuild tree ready in $(RPMTOPDIR)"
+
+# Build a source RPM only.
+srpm: rpmprep
+	$(RPMBUILD) -bs \
+		--define "_topdir $(RPMTOPDIR)" \
+		$(RPMTOPDIR)/SPECS/$(SPECFILE)
+	@echo "SRPM written to $(SRCRPMDIR)"
+
+# Build binary RPMs (requires build dependencies installed).
+rpm: rpmprep
+	$(RPMBUILD) -bb \
+		--define "_topdir $(RPMTOPDIR)" \
+		$(RPMTOPDIR)/SPECS/$(SPECFILE)
+	@echo "RPMs written to $(RPMDIR)"
+
+# Build both source and binary RPMs.
+rpms: rpmprep
+	$(RPMBUILD) -ba \
+		--define "_topdir $(RPMTOPDIR)" \
+		$(RPMTOPDIR)/SPECS/$(SPECFILE)
+	@echo "RPMs written to $(RPMDIR), SRPM to $(SRCRPMDIR)"
+
 test:
 	$(PYTHON) ./testpyisomd5sum.py
