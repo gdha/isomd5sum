@@ -81,7 +81,7 @@ static size_t starts_with(const char *const buffer, const char *const string) {
  * Read and store number from buffer if the buffer starts with string.
  */
 static size_t matches_number(char *const buffer, size_t index,
-                             const char *const string, long int *const number) {
+                             const char *const string, long long int *const number) {
     size_t len = starts_with(buffer + index, string);
     index += len;
     if (len > 0UL && index < APPDATA_SIZE) {
@@ -93,7 +93,7 @@ static size_t matches_number(char *const buffer, size_t index,
             *ptr = buffer[index];
         *ptr = '\0';
         char *endptr;
-        *number = strtol(tmp, &endptr, 10);
+        *number = strtoll(tmp, &endptr, 10);
         return endptr != NULL && *endptr != '\0' ? 0UL : index;
     }
     return 0UL;
@@ -112,6 +112,7 @@ off_t primary_volume_size(const int isofd, off_t *const offset) {
 struct volume_info *const parsepvd(const int isofd) {
     char buffer[APPDATA_SIZE];
     off_t offset;
+    long long int number;
 
     enum task_status {
         TASK_SUPPORTED = 1,
@@ -156,15 +157,15 @@ struct volume_info *const parsepvd(const int isofd) {
             for (char *p = buffer + index; index < APPDATA_SIZE && *p != ';';
                  p++, index++) {
             }
-        } else if ((len = matches_number(buffer, index,
-                                         "SKIPSECTORS = ", (long int *) &result->skipsectors))) {
+        } else if ((len = matches_number(buffer, index, "SKIPSECTORS = ", &number))) {
             index = len;
             if (index >= APPDATA_SIZE)
                 goto fail;
+            result->skipsectors = (off_t) number;
             task |= TASK_SKIP;
-        } else if ((len = matches_number(buffer, index,
-                                         "RHLISOSTATUS=", (long int *) &result->supported))) {
+        } else if ((len = matches_number(buffer, index, "RHLISOSTATUS=", &number))) {
             index = len;
+            result->supported = (size_t) number;
             task |= TASK_SUPPORTED;
         } else if ((len = starts_with(buffer + index, "FRAGMENT SUMS = "))) {
             index += len;
@@ -177,8 +178,9 @@ struct volume_info *const parsepvd(const int isofd) {
             for (char *p = buffer + index; index < APPDATA_SIZE && *p != ';';
                  p++, index++) {
             }
-        } else if ((len = matches_number(buffer, index, "FRAGMENT COUNT = ", (long int *) &result->fragmentcount))) {
+        } else if ((len = matches_number(buffer, index, "FRAGMENT COUNT = ", &number))) {
             index = len;
+            result->fragmentcount = (size_t) number;
             task |= TASK_FRAGCOUNT;
         } else if ((len = starts_with(buffer + index, "CERTIFICATE SERIAL = "))) {
             index += len;
