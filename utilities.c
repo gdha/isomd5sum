@@ -13,10 +13,11 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
@@ -25,6 +26,26 @@
 #include "md5.h"
 
 #include "utilities.h"
+
+/*
+ * Allocate `size` bytes aligned to the page size, in a way that satisfies the
+ * C11 requirement that aligned_alloc()'s size be an integral multiple of the
+ * alignment. SECTOR_SIZE (2048) is not a multiple of a 4096-byte page, so a
+ * naive aligned_alloc(pagesize, SECTOR_SIZE) is undefined behaviour (and is
+ * rejected by hardened allocators / sanitizers). We round the allocation up to
+ * the next multiple of the alignment; callers still only use `size` bytes.
+ * Returns NULL on overflow or allocation failure.
+ */
+void *alloc_page_aligned(const size_t size) {
+    const size_t align = (size_t) getpagesize();
+    if (align == 0 || size == 0)
+        return NULL;
+    /* Round size up to a multiple of align, guarding against overflow. */
+    if (size > SIZE_MAX - (align - 1))
+        return NULL;
+    const size_t rounded = ((size + align - 1) / align) * align;
+    return aligned_alloc(align, rounded);
+}
 
 static unsigned char *read_primary_volume_descriptor(const int fd, off_t *const offset) {
     /*
@@ -41,7 +62,7 @@ static unsigned char *read_primary_volume_descriptor(const int fd, off_t *const 
         return NULL;
     }
     unsigned char *sector_buffer;
-    sector_buffer = aligned_alloc((size_t) getpagesize(), SECTOR_SIZE * sizeof(*sector_buffer));
+    sector_buffer = alloc_page_aligned(SECTOR_SIZE * sizeof(*sector_buffer));
     if (sector_buffer == NULL) {
         return NULL;
     }
@@ -58,7 +79,13 @@ static unsigned char *read_primary_volume_descriptor(const int fd, off_t *const 
             free(sector_buffer);
             return NULL;
         }
-        nbyte *= SECTOR_SIZE;
+        /*
+         * Advance to the next volume descriptor, one sector further in. This
+         * must be an addition: using "*=" here overflows off_t (undefined
+         * behaviour, reachable from a crafted image with several descriptors
+         * before the PVD) and also yields a wrong PVD offset.
+         */
+        nbyte += SECTOR_SIZE;
     }
     *offset = nbyte;
     return sector_buffer;
@@ -138,6 +165,10 @@ struct volume_info *const parsepvd(const int isofd) {
     buffer[APPDATA_SIZE - 1] = '\0';
 
     struct volume_info *result = malloc(sizeof(struct volume_info));
+    if (result == NULL) {
+        free(aligned_buffer);
+        return NULL;
+    }
     result->skipsectors = SKIPSECTORS;
     result->supported = 0;
     result->fragmentcount = FRAGMENT_COUNT;
@@ -214,6 +245,40 @@ struct volume_info *const parsepvd(const int isofd) {
         free(result);
         return NULL;
     }
+
+    /*
+     * Validate the untrusted numeric fields that were parsed out of the PVD
+     * application-data area before any caller uses them in arithmetic. A
+     * crafted or corrupt image can otherwise drive a division by zero
+     * (fragment_size == 0) or an out-of-bounds read of the fixed-size
+     * fragmentsums[] buffer in validate_fragment(). We reject such images
+     * rather than clamping silently, so tampering is reported as an error.
+     *
+     *   fragmentcount: must be > 0, no larger than FRAGMENT_SUM_SIZE, and an
+     *                  integral divisor of it (matching what implantisomd5
+     *                  writes). A negative value parsed as a signed number
+     *                  becomes a huge size_t, which this upper bound also
+     *                  rejects.
+     *   skipsectors  : must be non-negative and smaller than the image, so
+     *                  total_size stays positive.
+     *   isosize      : must be positive.
+     */
+    if (result->isosize <= 0) {
+        free(result);
+        return NULL;
+    }
+    if (result->fragmentcount == 0 ||
+        result->fragmentcount > FRAGMENT_SUM_SIZE ||
+        (FRAGMENT_SUM_SIZE % result->fragmentcount) != 0) {
+        free(result);
+        return NULL;
+    }
+    if (result->skipsectors < 0 ||
+        result->skipsectors >= result->isosize / SECTOR_SIZE) {
+        free(result);
+        return NULL;
+    }
+
     return result;
 }
 

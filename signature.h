@@ -15,7 +15,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 #ifndef ISOMD5_SIGNATURE_H
 #define ISOMD5_SIGNATURE_H
@@ -28,10 +28,11 @@ extern "C" {
 
 /* Result of a signature verification. */
 enum signature_status {
-    SIGNATURE_VALID = 0,    /* signature verified against the certificate    */
-    SIGNATURE_INVALID = 1,  /* signature present but does not verify          */
-    SIGNATURE_MISSING = 2,  /* no detached signature file found               */
-    SIGNATURE_ERROR = 3     /* I/O / crypto error (see errstr)                */
+    SIGNATURE_VALID = 0,     /* signature verified against the certificate    */
+    SIGNATURE_INVALID = 1,   /* signature present but does not verify          */
+    SIGNATURE_MISSING = 2,   /* no detached signature file found               */
+    SIGNATURE_ERROR = 3,     /* I/O / crypto error (see errstr)                */
+    SIGNATURE_UNTRUSTED = 4  /* cert does not chain to the supplied CA         */
 };
 
 /*
@@ -56,6 +57,29 @@ int signature_sign_file(const char *keypath, const unsigned char *msg, size_t ms
  */
 int signature_verify_file(const char *certpath, const unsigned char *msg, size_t msglen,
                           const char *sigpath, char **errstr);
+
+/*
+ * Validate the trust chain of the X.509 certificate in certpath against the
+ * trusted CA certificate(s) given by capath and/or cadir, using OpenSSL's
+ * X509_verify_cert(). This checks that certpath chains up to a trust anchor and
+ * that the certificates are within their validity dates. It does NOT consult
+ * CRLs/OCSP for revocation.
+ *
+ *   capath - a PEM file holding one or more concatenated CA certificates
+ *            (as with "openssl verify -CAfile"), or NULL.
+ *   cadir  - a directory of trusted CA certificates hashed in the OpenSSL
+ *            c_rehash layout (as with "openssl verify -CApath"), or NULL.
+ *
+ * At least one of capath/cadir must be non-NULL; both may be supplied together,
+ * in which case the certificate is trusted if it chains to a CA found in either
+ * location.
+ *
+ * Returns SIGNATURE_VALID if the certificate is trusted, SIGNATURE_UNTRUSTED if
+ * it does not chain to a supplied CA (or is expired/not-yet-valid), or
+ * SIGNATURE_ERROR on an I/O or internal error (sets *errstr).
+ */
+int signature_verify_chain(const char *certpath, const char *capath, const char *cadir,
+                           char **errstr);
 
 #ifdef __cplusplus
 }

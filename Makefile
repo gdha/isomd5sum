@@ -12,9 +12,26 @@ endif
 
 CFLAGS += -std=gnu11 -Wall -D_GNU_SOURCE=1 -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE=1 -D_LARGEFILE64_SOURCE=1 -fPIC $(PYTHONINCLUDE)
 
+# Security hardening. Overridable (e.g. "make HARDENING=") and composes with
+# distro build flags (RPM %optflags already sets most of these). Full RELRO +
+# stack protector + FORTIFY + format-string warnings as errors. Note: we do
+# NOT add -fPIE here because the same object files are also linked into the
+# shared module pyisomd5sum.so; the -fPIC already in CFLAGS is compatible with
+# both a PIE executable (via -pie at link time) and a shared object.
+# _FORTIFY_SOURCE requires optimization, which the %.o rule provides (-O3).
+HARDENING ?= -fstack-protector-strong -fstack-clash-protection \
+             -D_FORTIFY_SOURCE=2 \
+             -Wformat -Wformat-security -Werror=format-security
+CFLAGS += $(HARDENING)
+
 OBJECTS = md5.o libimplantisomd5.o checkisomd5.o certificate.o signature.o implantisomd5
 SOURCES = $(patsubst %.o,%.c,$(OBJECTS))
 LDFLAGS += -fPIC
+# Link hardening safe for both executables and the shared module.
+LDFLAGS += -Wl,-z,relro,-z,now -Wl,-z,noexecstack
+# PIE applies only to the executables (not the .so / .a). Overridable with the
+# HARDENING knob above being cleared, or directly.
+PIE ?= -pie
 
 PYOBJS = pyisomd5sum.o libcheckisomd5.a libimplantisomd5.a
 
@@ -24,10 +41,10 @@ all: implantisomd5 checkisomd5 pyisomd5sum.so libimplantisomd5.a libcheckisomd5.
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -O3 -o $@ $<
 
 implantisomd5: implantisomd5.o libimplantisomd5.a
-	$(CC) $(CPPFLAGS) $(CFLAGS) implantisomd5.o libimplantisomd5.a -lpopt -lcrypto $(LDFLAGS) -o implantisomd5
+	$(CC) $(CPPFLAGS) $(CFLAGS) implantisomd5.o libimplantisomd5.a -lpopt -lcrypto $(LDFLAGS) $(PIE) -o implantisomd5
 
 checkisomd5: checkisomd5.o libcheckisomd5.a
-	$(CC) $(CPPFLAGS) $(CFLAGS) checkisomd5.o libcheckisomd5.a -lpopt -lcrypto $(LDFLAGS) -o checkisomd5
+	$(CC) $(CPPFLAGS) $(CFLAGS) checkisomd5.o libcheckisomd5.a -lpopt -lcrypto $(LDFLAGS) $(PIE) -o checkisomd5
 
 IMPLANT_AR_OBJS = libimplantisomd5.o md5.o utilities.o certificate.o signature.o
 CHECK_AR_OBJS   = libcheckisomd5.o md5.o utilities.o certificate.o signature.o

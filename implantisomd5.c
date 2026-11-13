@@ -15,7 +15,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 #include <stdio.h>
@@ -31,7 +31,7 @@ static int usage(void) {
 }
 
 int main(int argc, const char **argv) {
-    char *errstr;
+    char *errstr = "unknown error";
 
     int forceit = 0;
     int supported = 0;
@@ -72,9 +72,10 @@ int main(int argc, const char **argv) {
 
     rc = implantISOFile(args[0], cert, signkey, supported, forceit, 0, &errstr);
     if (rc) {
-        fprintf(stderr, "ERROR: ");
-        fprintf(stderr, errstr, args[0]);
-        fprintf(stderr, "\n\n");
+        /* errstr is an internal diagnostic string; print it as data, never as
+         * a format string, so a stray '%' can never trigger a format-string
+         * bug. The affected file name is appended separately. */
+        fprintf(stderr, "ERROR: %s: %s\n\n", errstr, args[0]);
         rc = 1;
     }
     poptFreeContext(optCon);

@@ -13,7 +13,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 #ifndef ISOMD5_UTILITIES_H
 #define ISOMD5_UTILITIES_H
@@ -72,12 +72,18 @@ struct volume_info {
 };
 
 off_t primary_volume_size(const int isofd, off_t *const offset);
-
 struct volume_info *const parsepvd(const int isofd);
-
 bool validate_fragment(const MD5_CTX *const hashctx, const size_t fragment,
                        const size_t fragmentsize, const char *const fragmentsums, char *const hashsums);
 
 void md5sum(char *const hashsum, MD5_CTX *const hashctx);
+
+/*
+ * Allocate `size` bytes aligned to the page size. The allocation is rounded up
+ * to a multiple of the alignment so it conforms to C11 aligned_alloc() rules
+ * (callers use only the first `size` bytes). Returns NULL on overflow/failure.
+ * Free with free().
+ */
+void *alloc_page_aligned(const size_t size);
 
 #endif /* ISOMD5_UTILITIES_H */

@@ -18,7 +18,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 /*
@@ -114,7 +114,7 @@ static int writeAppData(unsigned char *const appdata, const char *const valstr, 
 int implantISOFile(const char *iso, const char *cert, const char *signkey, int supported, int forceit, int quiet, char **errstr) {
     int isofd = open(iso, O_RDWR | O_BINARY);
     if (isofd < 0) {
-        *errstr = "Error - Unable to open file %s";
+        *errstr = "Error - Unable to open file";
         return -1;
     }
 
@@ -218,13 +218,19 @@ int implantISOFD(int isofd, const char *cert, const char *signkey, const char *s
     char fragmentsums[FRAGMENT_SUM_SIZE + 1];
     *fragmentsums = '\0';
 
-    const size_t pagesize = (size_t) getpagesize();
     const size_t buffer_size = NUM_SYSTEM_SECTORS * SECTOR_SIZE;
     unsigned char *buffer;
-    buffer = aligned_alloc(pagesize, buffer_size * sizeof(*buffer));
+    buffer = alloc_page_aligned(buffer_size * sizeof(*buffer));
+    if (buffer == NULL) {
+        *errstr = "Out of memory allocating read buffer.";
+        return -1;
+    }
 
     const off_t total_size = isosize - SKIPSECTORS * SECTOR_SIZE;
     const off_t fragment_size = total_size / (FRAGMENT_COUNT + 1);
+    /* Guard against a tiny image making fragment_size 0 (would divide by zero
+     * in "offset / fragment_size" below). */
+    const int do_fragments = fragment_size > 0;
     size_t previous_fragment = 0UL;
     off_t offset = 0LL;
     while (offset < total_size) {
@@ -234,12 +240,14 @@ int implantISOFD(int isofd, const char *cert, const char *signkey, const char *s
             break;
 
         MD5_Update(&hashctx, buffer, (unsigned int) nread);
-        const size_t current_fragment = offset / fragment_size;
-        const size_t fragmentsize = FRAGMENT_SUM_SIZE / FRAGMENT_COUNT;
-        /* If we're onto the next fragment, calculate the previous sum and check. */
-        if (current_fragment != previous_fragment) {
-            validate_fragment(&hashctx, current_fragment, fragmentsize, NULL, fragmentsums);
-            previous_fragment = current_fragment;
+        if (do_fragments) {
+            const size_t current_fragment = offset / fragment_size;
+            const size_t fragmentsize = FRAGMENT_SUM_SIZE / FRAGMENT_COUNT;
+            /* If we're onto the next fragment, calculate the previous sum. */
+            if (current_fragment != previous_fragment) {
+                validate_fragment(&hashctx, current_fragment, fragmentsize, NULL, fragmentsums);
+                previous_fragment = current_fragment;
+            }
         }
 
         offset += nread;

@@ -14,7 +14,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 /*
@@ -47,9 +47,11 @@
  *   file is plain ASCII and easy to transport.
  *
  * SCOPE / LIMITATIONS
- *   Verification only uses the PUBLIC KEY inside the supplied certificate. It
- *   does NOT validate the certificate's trust chain, validity dates or
- *   revocation - do that separately (e.g. "openssl verify") if required.
+ *   signature_verify_file() only uses the PUBLIC KEY inside the supplied
+ *   certificate; it does NOT by itself validate the certificate's trust chain
+ *   or validity dates. Use signature_verify_chain() (which wraps OpenSSL's
+ *   X509_verify_cert) to confirm the certificate chains to a trusted CA before
+ *   trusting its key. Neither function checks revocation (CRL/OCSP).
  */
 
 #include <stdio.h>
@@ -292,5 +294,96 @@ int signature_verify_file(const char *const certpath, const unsigned char *const
     EVP_PKEY_free(pkey);
     X509_free(cert);
     free(sig);
+    return result;
+}
+
+/*
+ * Validate the trust chain of the certificate at certpath against the trusted
+ * CA certificate(s) given by capath (a PEM bundle) and/or cadir (a c_rehash
+ * directory) using X509_verify_cert().
+ *
+ * The CA locations are loaded into an X509_STORE as trust anchors; the
+ * end-entity certificate is then verified against that store. A successful
+ * verification means certpath chains to one of the supplied CAs and all
+ * certificates in the chain are within their validity period. Revocation
+ * (CRL/OCSP) is NOT checked.
+ *
+ * At least one of capath/cadir must be non-NULL. These map directly onto the
+ * two arguments of X509_STORE_load_locations(), i.e. "openssl verify -CAfile"
+ * (capath) and "-CApath" (cadir).
+ *
+ * Returns SIGNATURE_VALID (trusted), SIGNATURE_UNTRUSTED (does not chain / is
+ * expired), or SIGNATURE_ERROR (I/O or internal error; sets *errstr).
+ */
+int signature_verify_chain(const char *const certpath, const char *const capath,
+                           const char *const cadir, char **errstr) {
+    int result = SIGNATURE_ERROR;
+
+    if ((capath == NULL || capath[0] == '\0') && (cadir == NULL || cadir[0] == '\0')) {
+        if (errstr)
+            *errstr = "No CA file or CA directory supplied.";
+        return SIGNATURE_ERROR;
+    }
+
+    X509 *cert = load_certificate(certpath);
+    if (cert == NULL) {
+        if (errstr)
+            *errstr = "Unable to read certificate.";
+        return SIGNATURE_ERROR;
+    }
+
+    X509_STORE *store = X509_STORE_new();
+    if (store == NULL) {
+        if (errstr)
+            *errstr = "Out of memory creating trust store.";
+        X509_free(cert);
+        return SIGNATURE_ERROR;
+    }
+
+    /* Load the trusted CA certificate(s). X509_STORE_load_locations accepts a
+     * PEM file (first arg, may hold one or more concatenated CAs) and/or a
+     * hashed CA directory (second arg, c_rehash layout). Either may be NULL. */
+    const char *const file = (capath != NULL && capath[0] != '\0') ? capath : NULL;
+    const char *const dir = (cadir != NULL && cadir[0] != '\0') ? cadir : NULL;
+    if (X509_STORE_load_locations(store, file, dir) != 1) {
+        if (errstr)
+            *errstr = "Unable to read CA certificate file or directory.";
+        X509_STORE_free(store);
+        X509_free(cert);
+        return SIGNATURE_ERROR;
+    }
+
+    X509_STORE_CTX *ctx = X509_STORE_CTX_new();
+    if (ctx == NULL) {
+        if (errstr)
+            *errstr = "Out of memory creating verify context.";
+        X509_STORE_free(store);
+        X509_free(cert);
+        return SIGNATURE_ERROR;
+    }
+
+    if (X509_STORE_CTX_init(ctx, store, cert, NULL) != 1) {
+        if (errstr)
+            *errstr = "Unable to initialize certificate verification.";
+        X509_STORE_CTX_free(ctx);
+        X509_STORE_free(store);
+        X509_free(cert);
+        return SIGNATURE_ERROR;
+    }
+
+    const int v = X509_verify_cert(ctx);
+    if (v == 1) {
+        result = SIGNATURE_VALID;
+    } else {
+        /* v == 0 means the chain could not be verified (untrusted/expired);
+         * the specific reason is available for diagnostics. */
+        if (errstr)
+            *errstr = (char *) X509_verify_cert_error_string(X509_STORE_CTX_get_error(ctx));
+        result = SIGNATURE_UNTRUSTED;
+    }
+
+    X509_STORE_CTX_free(ctx);
+    X509_STORE_free(store);
+    X509_free(cert);
     return result;
 }

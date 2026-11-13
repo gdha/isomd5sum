@@ -3,7 +3,7 @@
 checkisomd5 \(em check an MD5 checksum implanted by \fBimplantisomd5\fR
 .SH "SYNOPSIS"
 .PP
-\fBcheckisomd5\fR [\fB\-\-md5sumonly\fP]  [\fB\-\-verbose\fP]  [\fB\-\-gauge\fP]  [\fB\-\-cert\fP \fIcertfile\fP]  [isofilename  | blockdevice ]
+\fBcheckisomd5\fR [\fB\-\-md5sumonly\fP]  [\fB\-\-verbose\fP]  [\fB\-\-gauge\fP]  [\fB\-\-cert\fP \fIcertfile\fP  [\fB\-\-ca\fP \fIcafile\fP]  [\fB\-\-CApath\fP \fIcadir\fP]]  [isofilename  | blockdevice ]
 .SH "DESCRIPTION"
 .PP
 This manual page documents briefly the \fBcheckisomd5\fR command.  \fBcheckisomd5\fR is a program that checks an embedded MD5 checksum in an ISO9660 image (.iso), or block device.  The checksum is embedded by the corresponding \fBimplantisomd5\fR command.
@@ -12,7 +12,7 @@ With \fB\-\-cert\fP the detached signature \fIisofilename\fP.sig (created by \fB
 .PP
 Verification requires three files provided together: the image itself, its detached signature \fIisofilename\fP.sig (in the same directory, with the same base name), and the certificate passed to \fB\-\-cert\fP.  If the \fI.sig\fP file is absent, the signature status is reported as "MISSING".  The private key is never needed for verification.
 .PP
-\fBcheckisomd5\fR trusts the public key contained in the supplied certificate; it does not check the certificate's trust chain, expiry or revocation.  Validate the certificate separately (for example with \fBopenssl verify\fR) if that is required.
+\fBcheckisomd5\fR trusts the public key contained in the supplied certificate.  By default it does not check the certificate's trust chain, expiry or revocation.  Supply \fB\-\-ca\fP \fIcafile\fP and/or \fB\-\-CApath\fP \fIcadir\fP to have the certificate validated against the trusted CA certificate(s) they name (via OpenSSL's \fBX509_verify_cert\fR) \fIbefore\fP its key is trusted: the certificate must chain to one of those CAs and be within its validity dates.  \fB\-\-ca\fP takes a PEM bundle file (like \fBopenssl verify \-CAfile\fR) and \fB\-\-CApath\fP takes a hashed CA directory in \fBc_rehash\fR layout (like \fBopenssl verify \-CApath\fR); either or both may be given.  If the certificate does not chain to a trusted CA, the signature status is reported as "UNTRUSTED" and the signature is rejected even if the key would otherwise verify it.  Revocation (CRL/OCSP) is still not checked.
 .PP
 The check can be aborted by pressing Esc key.
 .SH "EXIT STATUS"
@@ -23,6 +23,10 @@ Program returns exit status 0 if the checksum is correct, 1 if the checksum is i
 Do not check the target.  Instead, output human-readable information about the target's checksums.  If a certificate serial number was embedded by \fBimplantisomd5 \-\-cert\fR, it is printed as well.
 .IP "\fB\-\-cert\fP \fIcertfile\fP" 10
 After the media check, verify the detached signature \fIisofilename\fP.sig against the public key in \fIcertfile\fP (PEM or DER).
+.IP "\fB\-\-ca\fP \fIcafile\fP" 10
+Only meaningful together with \fB\-\-cert\fP.  Before trusting the certificate's key, validate its trust chain against the trusted CA certificate(s) in \fIcafile\fP (PEM, one or more concatenated CAs) using \fBX509_verify_cert\fR.  This is the \fBopenssl verify \-CAfile\fR style bundle.  If the certificate does not chain to a trusted CA (or is expired/not-yet-valid) the signature status is reported as "UNTRUSTED" and verification fails.  May be combined with \fB\-\-CApath\fP.  Specifying \fB\-\-ca\fP without \fB\-\-cert\fP is an error.
+.IP "\fB\-\-CApath\fP \fIcadir\fP" 10
+Alternative (or complement) to \fB\-\-ca\fP.  Only meaningful together with \fB\-\-cert\fP.  Validate the certificate's trust chain against the trusted CA certificates found in \fIcadir\fP, a directory of CA certificates hashed in the OpenSSL \fBc_rehash\fR layout (the \fBopenssl verify \-CApath\fR style).  \fB\-\-ca\fP and \fB\-\-CApath\fP may be used together, in which case the certificate is trusted if it chains to a CA found in either location.  Specifying \fB\-\-CApath\fP without \fB\-\-cert\fP is an error.
 .IP "\fB\-v\fP, \fB\-\-verbose\fP" 10
 Display human-readable progress as the target is checked.  Without this option, nothing is outputted except errors.
 .IP "\fB\-g\fP, \fB\-\-gauge\fP" 10

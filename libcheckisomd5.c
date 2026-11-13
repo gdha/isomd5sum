@@ -18,7 +18,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 #include <stdio.h>
@@ -51,6 +51,13 @@ static enum isomd5sum_status checkmd5sum(int isofd, checkCallback cb, void *cbda
 
     const off_t total_size = info->isosize - info->skipsectors * SECTOR_SIZE;
     const off_t fragment_size = total_size / (info->fragmentcount + 1);
+    /*
+     * fragmentcount is validated in parsepvd(), and total_size is guaranteed
+     * positive, but a legitimately tiny image can still make fragment_size 0.
+     * Only perform per-fragment checking when fragment_size > 0 so the
+     * "offset / fragment_size" below can never divide by zero.
+     */
+    const int do_fragments = info->fragmentcount && fragment_size > 0;
     if (cb)
         cb(cbdata, 0LL, (long long) total_size);
 
@@ -62,7 +69,7 @@ static enum isomd5sum_status checkmd5sum(int isofd, checkCallback cb, void *cbda
 
     const size_t buffer_size = NUM_SYSTEM_SECTORS * SECTOR_SIZE;
     unsigned char *buffer;
-    buffer = aligned_alloc((size_t) getpagesize(), buffer_size * sizeof(*buffer));
+    buffer = alloc_page_aligned(buffer_size * sizeof(*buffer));
     if (buffer == NULL) {
         free(info);
         return ISOMD5SUM_CHECK_FAILED;
@@ -90,7 +97,7 @@ static enum isomd5sum_status checkmd5sum(int isofd, checkCallback cb, void *cbda
         clear_appdata(buffer, nread, info->offset + APPDATA_OFFSET, offset);
 
         MD5_Update(&hashctx, buffer, (unsigned int) nread);
-        if (info->fragmentcount) {
+        if (do_fragments) {
             const size_t current_fragment = offset / fragment_size;
             const size_t fragmentsize = FRAGMENT_SUM_SIZE / info->fragmentcount;
             /* If we're onto the next fragment, calculate the previous sum and check. */
@@ -165,10 +172,14 @@ int printMD5SUM(const char *file) {
 }
 
 /*
- * Verify the detached signature of an ISO against a certificate.
+ * Verify the detached signature of an ISO against a certificate, optionally
+ * validating the certificate's trust chain first.
  *
  * The signature (made by implantisomd5 --sign-key) covers the md5 hex string
  * that is embedded in the PVD, so we:
+ *   0. (if capath and/or cadir is set) validate that the certificate chains to
+ *      a trusted CA via signature_verify_chain(); if it does not, return
+ *      ISOMD5SUM_SIG_UNTRUSTED without trusting the key,
  *   1. parse the PVD to recover that embedded md5 string (the signed message),
  *   2. locate the detached signature at "<file>.sig",
  *   3. hand both, plus the certificate, to signature_verify_file().
@@ -179,7 +190,25 @@ int printMD5SUM(const char *file) {
  * The enum signature_status result is mapped onto enum isomd5sum_sig_status
  * for the public API in libcheckisomd5.h.
  */
-int verifyISOCert(const char *file, const char *certpath) {
+int verifyISOCertChain(const char *file, const char *certpath, const char *capath,
+                       const char *cadir) {
+    /*
+     * Optional trust-chain validation. Done before anything else so that an
+     * untrusted certificate is rejected regardless of whether its key happens
+     * to verify the signature - an attacker could otherwise present a valid
+     * signature made with a self-signed / unrelated certificate.
+     */
+    const int have_ca = (capath != NULL && capath[0] != '\0') ||
+                        (cadir != NULL && cadir[0] != '\0');
+    if (have_ca) {
+        char *chain_err = NULL;
+        int crc = signature_verify_chain(certpath, capath, cadir, &chain_err);
+        if (crc == SIGNATURE_UNTRUSTED)
+            return ISOMD5SUM_SIG_UNTRUSTED;
+        if (crc != SIGNATURE_VALID)
+            return ISOMD5SUM_SIG_ERROR;
+    }
+
     int isofd = open(file, O_RDONLY | O_BINARY);
     if (isofd < 0)
         return ISOMD5SUM_SIG_ERROR;
@@ -219,4 +248,8 @@ int verifyISOCert(const char *file, const char *certpath) {
         default:
             return ISOMD5SUM_SIG_ERROR;
     }
+}
+
+int verifyISOCert(const char *file, const char *certpath) {
+    return verifyISOCertChain(file, certpath, NULL, NULL);
 }

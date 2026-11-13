@@ -15,7 +15,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 #include <stdio.h>
@@ -71,7 +71,7 @@ static int outputCB(void *const co, const long long offset, const long long tota
 }
 
 static int usage(void) {
-    fprintf(stderr, "Usage: checkisomd5 [--md5sumonly] [--verbose] [--gauge] [--cert <certfile>] <isofilename>|<blockdevice>\n\n");
+    fprintf(stderr, "Usage: checkisomd5 [--md5sumonly] [--verbose] [--gauge] [--cert <certfile> [--ca <cafile>] [--CApath <cadir>]] <isofilename>|<blockdevice>\n\n");
     return 1;
 }
 
@@ -124,12 +124,16 @@ int main(int argc, const char **argv) {
     int md5only = 0;
     int help = 0;
     char *cert = NULL;
+    char *ca = NULL;
+    char *cadir = NULL;
 
     struct poptOption options[] = {
         { "md5sumonly", 'o', POPT_ARG_NONE, &md5only, 0 },
         { "verbose", 'v', POPT_ARG_NONE, &data.verbose, 0 },
         { "gauge", 'g', POPT_ARG_NONE, &data.gauge, 0 },
         { "cert", 'c', POPT_ARG_STRING, &cert, 0 },
+        { "ca", 'a', POPT_ARG_STRING, &ca, 0 },
+        { "CApath", 'A', POPT_ARG_STRING, &cadir, 0 },
         { "help", 'h', POPT_ARG_NONE, &help, 0 },
         { 0, 0, 0, 0, 0 }
     };
@@ -190,19 +194,35 @@ int main(int argc, const char **argv) {
 
     /*
      * Optional signature check (--cert). Runs AFTER the md5 media check and
-     * reports a separate "Signature status:" line. Any outcome other than
-     * VALID (invalid/missing/no-md5/error) is treated as a failure and forces
-     * a non-zero exit, but only if the md5 check itself passed - a prior md5
-     * failure already owns the exit code.
+     * reports a separate "Signature status:" line. If --ca and/or --CApath is
+     * also supplied, the certificate's trust chain is validated
+     * (X509_verify_cert) BEFORE its key is trusted, so a signature made with an
+     * untrusted certificate is rejected. --ca names a PEM CA bundle (like
+     * "openssl verify -CAfile"); --CApath names a c_rehash directory of CA
+     * certificates (like "-CApath"); either or both may be given. Any outcome
+     * other than VALID (invalid/missing/no-md5/untrusted/error) is treated as a
+     * failure and forces a non-zero exit, but only if the md5 check itself
+     * passed - a prior md5 failure already owns the exit code.
      */
     if (cert != NULL && cert[0] != '\0') {
-        int sig = verifyISOCert(args[0], cert);
+        const char *capath = (ca != NULL && ca[0] != '\0') ? ca : NULL;
+        const char *cap_dir = (cadir != NULL && cadir[0] != '\0') ? cadir : NULL;
+        const int have_ca = capath != NULL || cap_dir != NULL;
+        int sig = verifyISOCertChain(args[0], cert, capath, cap_dir);
         switch (sig) {
             case ISOMD5SUM_SIG_VALID:
-                fprintf(stderr, "Signature status: VALID (md5sum signed by the supplied certificate).\n");
+                if (have_ca)
+                    fprintf(stderr, "Signature status: VALID (md5sum signed by the supplied certificate, which chains to the supplied CA).\n");
+                else
+                    fprintf(stderr, "Signature status: VALID (md5sum signed by the supplied certificate).\n");
                 break;
             case ISOMD5SUM_SIG_INVALID:
                 fprintf(stderr, "Signature status: INVALID (signature does not match the certificate).\n");
+                if (exit_rc == 0)
+                    exit_rc = 1;
+                break;
+            case ISOMD5SUM_SIG_UNTRUSTED:
+                fprintf(stderr, "Signature status: UNTRUSTED (the certificate does not chain to the supplied CA).\n");
                 if (exit_rc == 0)
                     exit_rc = 1;
                 break;
@@ -218,11 +238,16 @@ int main(int argc, const char **argv) {
                 break;
             default:
                 fprintf(stderr, "Signature status: ERROR (could not verify signature; "
-                                "the certificate may not match the signing key type).\n");
+                                "the certificate may not match the signing key type, "
+                                "or the CA file/directory could not be read).\n");
                 if (exit_rc == 0)
                     exit_rc = 1;
                 break;
         }
+    } else if ((ca != NULL && ca[0] != '\0') || (cadir != NULL && cadir[0] != '\0')) {
+        fprintf(stderr, "Signature status: NA (--ca/--CApath requires --cert).\n");
+        if (exit_rc == 0)
+            exit_rc = 1;
     }
 
     poptFreeContext(optCon);
