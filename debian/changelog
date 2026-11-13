@@ -1,0 +1,13 @@
+rear-isomd5sum (1.2.6-1) unstable; urgency=low
+
+  * Initial Debian packaging of enhanced isomd5sum drop-in replacement.
+  * Integrate upstream PRs #41-#45:
+    - Fix endless loop and memory leak when no primary volume descriptor (#41)
+    - Fix signed integer overflow when reading the volume space size (#42)
+    - Fix parsing of numbers on 32-bit big-endian systems (#43)
+    - Do not report more progress than the total size (#44)
+    - Only change terminal settings when stdin is a terminal (#45)
+  * Add certificate-serial embedding, detached signing and optional CA
+    trust-chain validation (checkisomd5 --ca / --CApath).
+
+ -- Gratien Dhaese <gratien.dhaese@gmail.com>  Tue, 20 Oct 2026 00:00:00 +0000

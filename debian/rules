@@ -1,0 +1,13 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@ --with python3
+
+# The upstream Makefile computes PYTHONSITEPACKAGES from the interpreter, which
+# on Debian/Ubuntu points to /usr/local/lib/python3.x/dist-packages rather than
+# /usr/lib/python3/dist-packages.  Override it so the .so lands where
+# dh_python3 expects it.  Also override LIBDIR to "lib" since Debian does not
+# use lib64 even on 64-bit architectures (multiarch uses lib/<triplet> instead,
+# but the static .a files and pkg-config file are fine in /usr/lib).
+override_dh_auto_install:
+	dh_auto_install -- PYTHONSITEPACKAGES=/usr/lib/python3/dist-packages LIBDIR=lib

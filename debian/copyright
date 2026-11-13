@@ -1,0 +1,15 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: isomd5sum
+Upstream-Contact: anaconda-devel-list@redhat.com
+Source: https://github.com/rhinstaller/isomd5sum
+
+Files: *
+Copyright: 2001-2024 Red Hat, Inc. and others
+License: GPL-2.0-or-later
+
+Files: debian/*
+Copyright: 2026 Gratien Dhaese <gratien.dhaese@gmail.com>
+License: GPL-2.0-or-later
+
+Comment: The upstream sources are "GPL version 2 or (at your option) any
+ later version", i.e. GPLv2+.
