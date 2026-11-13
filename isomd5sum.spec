@@ -69,11 +69,17 @@ the isomd5sum library.
 %package -n python3-%{upstream_name}
 Summary:        Python 3 bindings for %{upstream_name}
 Requires:       %{name} = %{version}-%{release}
-%{?python_provide:%python_provide python3-%{upstream_name}}
-# On EL9 %python_provide emits "Obsoletes: python39-isomd5sum" (the
-# interpreter-versioned name) but no matching Provides, which rpmlint flags as
-# "obsolete-not-provided". Provide it explicitly so the obsolete is satisfied.
-Provides:       python39-%{upstream_name} = %{version}-%{release}
+# Do NOT use %%python_provide here: that macro is not defined in every build
+# environment (e.g. some RHEL 8 setups), where it fails with
+# "Unknown tag: %%python_provide".
+#
+# rpm already auto-generates the python-isomd5sum, python3-isomd5sum and
+# python3.<minor>-isomd5sum (dotted) Provides, so we must NOT repeat those or
+# rpmlint reports "useless-provides". The only name not generated automatically
+# is the interpreter-versioned DOTLESS form (e.g. python39-isomd5sum), which is
+# what some dependencies use; provide just that. python3_version_nodots is e.g.
+# "39" on RHEL 9 and "36" on RHEL 8, so this stays correct on both.
+Provides:       python%{python3_version_nodots}-%{upstream_name} = %{version}-%{release}
 
 %description -n python3-%{upstream_name}
 Python 3 bindings for the isomd5sum library.
@@ -120,8 +126,11 @@ strip %{buildroot}%{python3_sitearch}/pyisomd5sum.so
 - Strip installed binaries and the python .so in %%install (debug_package is
   disabled, so rpm's own strip pass does not run) to clear
   unstripped-binary-or-object
-- Provide python39-isomd5sum explicitly so the obsolete emitted by
-  %%python_provide is satisfied (obsolete-not-provided)
+- Replace %%python_provide (undefined on some RHEL 8 build hosts, where it
+  fails with "Unknown tag") with an explicit dotless python%%{nodots}-isomd5sum
+  Provides; the dotted/unversioned names are left to rpm's auto-provides to
+  avoid "useless-provides". Fixes the RHEL 8 build and the earlier EL9
+  obsolete-not-provided warning.
 - Rename package to rear-isomd5sum as an enhanced drop-in replacement for the
   stock isomd5sum (Provides/Obsoletes isomd5sum); installed binaries, libs,
   headers, pkg-config and the python3 isomd5sum module keep their names
