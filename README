@@ -85,6 +85,52 @@ validation is skipped and only the key is used (the previous behaviour), which
 remains equivalent to validating the certificate separately with e.g.
 "openssl verify -CAfile ca-bundle.pem rear-cert.pem".
 
+Packaging and distribution requirements
+---------------------------------------
+The signing/certificate features add an OpenSSL dependency on top of the
+historical popt dependency.  When building a package or distributing the
+binaries, the following are required.
+
+Build dependencies (on the build host)::
+
+  RPM (isomd5sum.spec):   gcc  make  popt-devel     openssl-devel  python3-devel
+  DEB (debian/control):   gcc  make  libpopt-dev    libssl-dev     python3-dev
+                          (+ debhelper-compat (= 13), dh-python)
+
+openssl-devel / libssl-dev is the key addition: without it signature.c and
+certificate.c will not compile.
+
+Runtime dependencies (on the target machine)::
+
+  implantisomd5 / checkisomd5 are dynamically linked against:
+    libcrypto (OpenSSL)   - the --cert / --sign-key signing logic
+    libpopt               - command-line option parsing
+
+  RHEL / Fedora:   openssl-libs   popt
+  Debian / Ubuntu: libssl3        libpopt0   (libssl1.1 on older releases)
+
+These are resolved automatically when the package is installed: rpm derives
+them from the ELF binaries, and the deb declares "Depends: ${shlibs:Depends}".
+
+What to ship for a signed image like::
+
+  implantisomd5 --cert /etc/pki/tls/certs/treasury-cert.pem \
+                --sign-key /etc/pki/tls/private/treasury-cert.key \
+                --force /var/lib/rear/output/rear-ITSGBHHLSP01539.iso
+
+  * Build and distribute the rear-isomd5sum RPM ("make rpm") or .deb
+    ("make deb"), NOT the raw binary, so the OpenSSL/popt runtime deps are
+    declared and resolved.  This package Provides/Obsoletes the stock
+    isomd5sum and cleanly supersedes it.
+  * The X.509 certificate (PEM or DER) is public and may ship with the image;
+    its serial number is embedded into the ISO.
+  * The private key (--sign-key) is a site secret: keep it on the signing
+    host only (e.g. /etc/pki/tls/private/, mode 0600, root-only).  It is
+    NEVER needed for verification and must not be packaged.
+  * On the verifying side only checkisomd5 + openssl-libs are needed; the
+    detached <iso>.sig and the certificate must travel with the image (see
+    "Distributing a signed image" above).
+
 isomd5sum is hosted on GitHub. The source can be
 grabbed via git with
   git clone https://github.com/rhinstaller/isomd5sum.git
