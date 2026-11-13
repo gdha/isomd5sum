@@ -1,0 +1,5 @@
+usr/include/libimplantisomd5.h
+usr/include/libcheckisomd5.h
+usr/lib*/libimplantisomd5.a
+usr/lib*/libcheckisomd5.a
+usr/share/pkgconfig/isomd5sum.pc

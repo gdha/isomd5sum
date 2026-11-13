@@ -86,7 +86,8 @@ install-devel:
 
 clean:
 	rm -f *.o *.so *.pyc *.a .depend *~
-	rm -f implantisomd5 checkisomd5 
+	rm -f implantisomd5 checkisomd5
+	rm -rf $(CURDIR)/debbuild
 
 tag:
 	@git tag -a -m "Tag as $(VERSION)" -f $(VERSION)
@@ -130,6 +131,30 @@ rpms: rpmprep
 		--define "_topdir $(RPMTOPDIR)" \
 		$(RPMTOPDIR)/SPECS/$(SPECFILE)
 	@echo "RPMs written to $(RPMDIR), SRPM to $(SRCRPMDIR)"
+
+# ── DEB packaging ─────────────────────────────────────────────────────────────
+DEBBUILD   ?= dpkg-buildpackage
+DEBTOPDIR  ?= $(CURDIR)/debbuild
+DEBSRCDIR   = $(DEBTOPDIR)/isomd5sum-$(VERSION)
+
+# Prepare the deb build tree: extract a clean source tarball and overlay the
+# debian/ packaging directory on top of it.  The tarball (from "archive") does
+# not contain debian/ unless it has been committed, so we copy it explicitly.
+debprep: archive
+	rm -rf $(DEBTOPDIR)
+	mkdir -p $(DEBTOPDIR)
+	tar xjf isomd5sum-$(VERSION).tar.bz2 -C $(DEBTOPDIR)
+	cp -r debian $(DEBSRCDIR)/debian
+	@echo "deb build tree ready in $(DEBSRCDIR)"
+
+# Build binary .deb packages (requires build dependencies installed).
+# dpkg-buildpackage leaves the .debs in the parent of the source tree, i.e.
+# $(DEBTOPDIR).  -b = binary-only, -us -uc = skip signing, --no-pre-clean =
+# do not run debian/rules clean first (the tree is already clean from the
+# tarball extraction).
+deb: debprep
+	cd $(DEBSRCDIR) && $(DEBBUILD) -b -us -uc --no-pre-clean
+	@echo "DEBs written to $(DEBTOPDIR)"
 
 test:
 	$(PYTHON) ./testpyisomd5sum.py

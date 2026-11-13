@@ -1,0 +1,56 @@
+Source: rear-isomd5sum
+Section: utils
+Priority: optional
+Maintainer: Gratien Dhaese <gratien.dhaese@gmail.com>
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Build-Depends: debhelper-compat (= 13),
+               gcc,
+               make,
+               libpopt-dev,
+               libssl-dev,
+               python3-dev,
+               dh-python
+
+Package: rear-isomd5sum
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Provides: isomd5sum
+Conflicts: isomd5sum
+Replaces: isomd5sum
+Breaks: isomd5sum (<< 1.2.6)
+Description: Utilities for working with md5sum implanted in ISO images (drop-in)
+ isomd5sum provides a way of making use of the ISO9660 application data
+ area to store md5sum data about an ISO image.  This allows you to check
+ the ISO given nothing more than the image itself.
+ .
+ In addition to the md5sum, the serial number of an X.509 certificate can
+ optionally be embedded into the same application data area.  The embedded
+ md5sum can also be signed with a private key so that consumers can prove
+ the checksum was produced by the holder of the certificate.  The signing
+ certificate can optionally be validated against trusted CA certificate(s)
+ before its key is trusted.
+ .
+ This is an enhanced, drop-in replacement for the stock isomd5sum package:
+ it installs the same binaries, libraries and Python module and simply adds
+ the certificate-serial, signing and CA trust-chain features.
+
+Package: rear-isomd5sum-dev
+Architecture: any
+Depends: rear-isomd5sum (= ${binary:Version}), ${misc:Depends}
+Provides: isomd5sum-dev
+Conflicts: isomd5sum-dev
+Replaces: isomd5sum-dev
+Description: Development files for rear-isomd5sum
+ Header files and static libraries for developing applications that use
+ the isomd5sum library.
+
+Package: python3-isomd5sum
+Architecture: any
+Depends: rear-isomd5sum (= ${binary:Version}),
+         ${shlibs:Depends},
+         ${python3:Depends},
+         ${misc:Depends}
+Description: Python 3 bindings for isomd5sum
+ Python 3 bindings for the isomd5sum library, allowing implanting and
+ checking of md5sums in ISO images from Python scripts.
