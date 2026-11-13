@@ -12,7 +12,7 @@ stored exactly as reported by
 
 To implant both the md5sum and a certificate serial number into an iso::
 
-  implantisomd5 --cert /etc/pki/tls/certs/treasury-cert.pem image.iso
+  implantisomd5 --cert /etc/pki/tls/certs/cert.pem image.iso
 
 The certificate may be in PEM or DER format.  The embedded serial can be
 read back together with the md5sum information::
@@ -53,7 +53,7 @@ Verification requires THREE things, which must be provided together:
 
   1. the image            e.g.  rear.iso
   2. the detached sig     e.g.  rear.iso.sig   (same directory, same base name)
-  3. the certificate      e.g.  rear-cert.pem  (public; safe to distribute)
+  3. the certificate      e.g.  cert.pem       (public; safe to distribute)
 
 The signature file must sit next to the image with the exact name
 "<iso>.sig"; if it is moved away or renamed, "checkisomd5 --cert" reports
@@ -68,8 +68,8 @@ revocation.  Pass "--ca <ca-bundle.pem>" and/or "--CApath <cadir>" to have the
 certificate validated against one or more trusted CA certificates (via
 OpenSSL's X509_verify_cert) BEFORE its key is trusted::
 
-  checkisomd5 --cert rear-cert.pem --ca ca-bundle.pem rear.iso
-  checkisomd5 --cert rear-cert.pem --CApath /etc/pki/tls/certs rear.iso
+  checkisomd5 --cert cert.pem --ca ca-bundle.pem rear.iso
+  checkisomd5 --cert cert.pem --CApath /etc/pki/tls/certs rear.iso
 
 "--ca" takes a PEM bundle file (equivalent to "openssl verify -CAfile") while
 "--CApath" takes a directory of CA certificates hashed with c_rehash
@@ -83,7 +83,7 @@ verify it, yielding a non-zero exit status.  "--ca"/"--CApath" require
 "--cert"; revocation (CRL/OCSP) is still not checked.  Without them, chain
 validation is skipped and only the key is used (the previous behaviour), which
 remains equivalent to validating the certificate separately with e.g.
-"openssl verify -CAfile ca-bundle.pem rear-cert.pem".
+"openssl verify -CAfile ca-bundle.pem cert.pem".
 
 Packaging and distribution requirements
 ---------------------------------------
@@ -114,9 +114,9 @@ them from the ELF binaries, and the deb declares "Depends: ${shlibs:Depends}".
 
 What to ship for a signed image like::
 
-  implantisomd5 --cert /etc/pki/tls/certs/treasury-cert.pem \
-                --sign-key /etc/pki/tls/private/treasury-cert.key \
-                --force /var/lib/rear/output/rear-ITSGBHHLSP01539.iso
+  implantisomd5 --cert /etc/pki/tls/certs/cert.pem \
+                --sign-key /etc/pki/tls/private/cert.key \
+                --force /var/lib/rear/output/rear.iso
 
   * Build and distribute the rear-isomd5sum RPM ("make rpm") or .deb
     ("make deb"), NOT the raw binary, so the OpenSSL/popt runtime deps are
@@ -131,7 +131,14 @@ What to ship for a signed image like::
     detached <iso>.sig and the certificate must travel with the image (see
     "Distributing a signed image" above).
 
-isomd5sum is hosted on GitHub. The source can be
+
+This fork of isomd5sum is hosted on GitHub. The source can be
+grabbed via git with
+  git clone https://github.com/gdha/isomd5sum.git
+or browsed via
+  https://github.com/gdha/isomd5sum
+
+The original isomd5sum is hosted on GitHub. The source can be
 grabbed via git with
   git clone https://github.com/rhinstaller/isomd5sum.git
 or browsed via
