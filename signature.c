@@ -30,11 +30,16 @@
  *     - md5 media check  -> image content is intact (integrity)
  *     - signature check  -> the md5 was blessed by the key holder (authenticity)
  *
- * WHY DETACHED (a separate "<iso>.sig" file)
+ * WHERE THE SIGNATURE LIVES
  *   The PVD application-data area is only 512 bytes and already mostly full;
- *   an RSA-2048 signature alone is 256 bytes (512 hex / 344 base64 chars) and
- *   would not fit. A detached file has no size limit and works for any key
- *   type. The trade-off is that the .sig must travel WITH the image.
+ *   an RSA-2048 signature alone is 256 bytes (344 base64 chars) and would not
+ *   fit. So the signature is stored in its own 2 KiB sector in the trailing
+ *   SKIPSECTORS region of the ISO (see signature_sign_block /
+ *   signature_verify_block). That region is excluded from the md5, so the
+ *   embedded signature does not change the md5 it covers, and the signature
+ *   travels inside the image with no detached file. The older file-based
+ *   helpers (signature_sign_file / signature_verify_file) remain for callers
+ *   that still want a detached "<iso>.sig".
  *
  * KEY TYPES
  *   Uses the OpenSSL EVP one-shot interface (EVP_DigestSign/EVP_DigestVerify),
@@ -57,6 +62,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <openssl/bio.h>
 #include <openssl/evp.h>
@@ -64,9 +70,26 @@
 #include <openssl/x509.h>
 
 #include "signature.h"
+#include "utilities.h" /* SECTOR_SIZE */
 
 /* Maximum size we are willing to read for a (base64) detached signature. */
 #define SIG_MAX_B64 8192
+
+/*
+ * Embedded-signature block format.
+ *
+ * Instead of a detached "<iso>.sig" file, the base64 signature is stored in a
+ * single 2 KiB sector INSIDE the ISO, in the trailing SKIPSECTORS region that
+ * is excluded from the md5 (so writing it does not change the md5 the
+ * signature covers). The block is:
+ *
+ *   "ISOMD5-SIG-v1\n" <base64 signature> "\n" <NUL padding to SECTOR_SIZE>
+ *
+ * The magic line lets the reader distinguish a real signature block from the
+ * all-zero padding that is normally present in the skipped sectors.
+ */
+#define SIG_BLOCK_MAGIC "ISOMD5-SIG-v1\n"
+#define SIG_BLOCK_SIZE  ((size_t) SECTOR_SIZE)
 
 /*
  * Some key types (Ed25519 / Ed448) require the "one-shot" interface and do not
@@ -136,19 +159,20 @@ static long base64_decode(const char *const src, unsigned char **out) {
 }
 
 /*
- * Sign msg[0..msglen) with the PEM private key at keypath and write a base64
- * detached signature to sigpath. See signature.h for the full contract.
- * The whole operation is self-contained: load key -> EVP sign -> base64 ->
- * write file, freeing every resource on all paths via the "done" label.
+ * Sign msg[0..msglen) with the PEM private key at keypath and return the
+ * base64-encoded signature as a newly malloc'd NUL-terminated string (no
+ * newline). Returns NULL on failure and sets *errstr. The caller frees the
+ * result. This is the shared core used by both the detached-file and the
+ * embedded-block signers.
  */
-int signature_sign_file(const char *const keypath, const unsigned char *const msg,
-                         const size_t msglen, const char *const sigpath, char **errstr) {
-    int rc = -1;
+static char *sign_to_b64(const char *const keypath, const unsigned char *const msg,
+                         const size_t msglen, char **errstr) {
+    char *b64 = NULL;
     EVP_PKEY *pkey = load_private_key(keypath);
     if (pkey == NULL) {
         if (errstr)
             *errstr = "Unable to read signing private key.";
-        return -1;
+        return NULL;
     }
 
     EVP_MD_CTX *ctx = EVP_MD_CTX_new();
@@ -156,7 +180,7 @@ int signature_sign_file(const char *const keypath, const unsigned char *const ms
         if (errstr)
             *errstr = "Out of memory creating signing context.";
         EVP_PKEY_free(pkey);
-        return -1;
+        return NULL;
     }
 
     unsigned char *sig = NULL;
@@ -187,60 +211,102 @@ int signature_sign_file(const char *const keypath, const unsigned char *const ms
         goto done;
     }
 
-    char *b64 = base64_encode(sig, siglen);
-    if (b64 == NULL) {
-        if (errstr)
-            *errstr = "Unable to encode signature.";
-        goto done;
-    }
+    b64 = base64_encode(sig, siglen);
+    if (b64 == NULL && errstr)
+        *errstr = "Unable to encode signature.";
+
+done:
+    free(sig);
+    EVP_MD_CTX_free(ctx);
+    EVP_PKEY_free(pkey);
+    return b64;
+}
+
+/*
+ * Sign msg[0..msglen) with the PEM private key at keypath and write a base64
+ * detached signature to sigpath. See signature.h for the full contract.
+ */
+int signature_sign_file(const char *const keypath, const unsigned char *const msg,
+                         const size_t msglen, const char *const sigpath, char **errstr) {
+    char *b64 = sign_to_b64(keypath, msg, msglen, errstr);
+    if (b64 == NULL)
+        return -1;
 
     FILE *fp = fopen(sigpath, "w");
     if (fp == NULL) {
         if (errstr)
             *errstr = "Unable to write signature file.";
         free(b64);
-        goto done;
+        return -1;
     }
     fprintf(fp, "%s\n", b64);
     fclose(fp);
     free(b64);
-    rc = 0;
-
-done:
-    free(sig);
-    EVP_MD_CTX_free(ctx);
-    EVP_PKEY_free(pkey);
-    return rc;
+    return 0;
 }
 
 /*
- * Verify the base64 detached signature at sigpath over msg[0..msglen) using
- * the public key from the certificate at certpath. Returns an
- * enum signature_status value (VALID / INVALID / MISSING / ERROR). A missing
- * .sig file is distinguished from a verification failure so callers can report
- * the two cases differently.
+ * Sign msg[0..msglen) and write the signature as a magic-prefixed block into
+ * sector `sector` of the open ISO file descriptor isofd. See signature.h.
  */
-int signature_verify_file(const char *const certpath, const unsigned char *const msg,
-                          const size_t msglen, const char *const sigpath, char **errstr) {
-    /* Read the detached signature file. Absence is a distinct status. */
-    FILE *fp = fopen(sigpath, "r");
-    if (fp == NULL)
-        return SIGNATURE_MISSING;
+int signature_sign_block(const char *const keypath, const unsigned char *const msg,
+                         const size_t msglen, const int isofd, const off_t sector,
+                         char **errstr) {
+    char *b64 = sign_to_b64(keypath, msg, msglen, errstr);
+    if (b64 == NULL)
+        return -1;
 
-    char b64[SIG_MAX_B64];
-    size_t n = fread(b64, 1, sizeof(b64) - 1, fp);
-    fclose(fp);
-    b64[n] = '\0';
-    /* Strip trailing whitespace/newlines. */
-    while (n > 0 && (b64[n - 1] == '\n' || b64[n - 1] == '\r' ||
-                     b64[n - 1] == ' ' || b64[n - 1] == '\t'))
-        b64[--n] = '\0';
+    const size_t magiclen = strlen(SIG_BLOCK_MAGIC);
+    const size_t b64len = strlen(b64);
+    /* magic + base64 + trailing newline must fit in one sector. */
+    if (magiclen + b64len + 1 > SIG_BLOCK_SIZE) {
+        if (errstr)
+            *errstr = "Signature too large for one sector.";
+        free(b64);
+        return -1;
+    }
 
+    unsigned char *block = calloc(1, SIG_BLOCK_SIZE);
+    if (block == NULL) {
+        if (errstr)
+            *errstr = "Out of memory building signature block.";
+        free(b64);
+        return -1;
+    }
+    memcpy(block, SIG_BLOCK_MAGIC, magiclen);
+    memcpy(block + magiclen, b64, b64len);
+    block[magiclen + b64len] = '\n';
+    free(b64);
+
+    const off_t off = sector * (off_t) SECTOR_SIZE;
+    if (lseek(isofd, off, SEEK_SET) < 0) {
+        if (errstr)
+            *errstr = "Seek to signature sector failed.";
+        free(block);
+        return -1;
+    }
+    ssize_t w = write(isofd, block, SIG_BLOCK_SIZE);
+    free(block);
+    if (w != (ssize_t) SIG_BLOCK_SIZE) {
+        if (errstr)
+            *errstr = "Writing signature block failed.";
+        return -1;
+    }
+    return 0;
+}
+
+/*
+ * Verify a base64 signature string (b64) over msg[0..msglen) using the public
+ * key from the certificate at certpath. Shared core for the detached-file and
+ * embedded-block verifiers. Returns an enum signature_status value.
+ */
+static int verify_b64(const char *const certpath, const unsigned char *const msg,
+                      const size_t msglen, const char *const b64, char **errstr) {
     unsigned char *sig = NULL;
     const long siglen = base64_decode(b64, &sig);
     if (siglen <= 0) {
         if (errstr)
-            *errstr = "Signature file is malformed.";
+            *errstr = "Signature is malformed.";
         return SIGNATURE_ERROR;
     }
 
@@ -295,6 +361,65 @@ int signature_verify_file(const char *const certpath, const unsigned char *const
     X509_free(cert);
     free(sig);
     return result;
+}
+
+/*
+ * Verify the base64 detached signature at sigpath over msg[0..msglen) using
+ * the public key from the certificate at certpath. A missing .sig file is
+ * reported as SIGNATURE_MISSING.
+ */
+int signature_verify_file(const char *const certpath, const unsigned char *const msg,
+                          const size_t msglen, const char *const sigpath, char **errstr) {
+    FILE *fp = fopen(sigpath, "r");
+    if (fp == NULL)
+        return SIGNATURE_MISSING;
+
+    char b64[SIG_MAX_B64];
+    size_t n = fread(b64, 1, sizeof(b64) - 1, fp);
+    fclose(fp);
+    b64[n] = '\0';
+    while (n > 0 && (b64[n - 1] == '\n' || b64[n - 1] == '\r' ||
+                     b64[n - 1] == ' ' || b64[n - 1] == '\t'))
+        b64[--n] = '\0';
+
+    return verify_b64(certpath, msg, msglen, b64, errstr);
+}
+
+/*
+ * Verify the embedded signature block in sector `sector` of the open ISO file
+ * descriptor isofd over msg[0..msglen) using the certificate at certpath. If
+ * the sector does not start with the magic header it is treated as "no
+ * signature present" and SIGNATURE_MISSING is returned. See signature.h.
+ */
+int signature_verify_block(const char *const certpath, const unsigned char *const msg,
+                           const size_t msglen, const int isofd, const off_t sector,
+                           char **errstr) {
+    char block[SIG_BLOCK_SIZE + 1];
+    const off_t off = sector * (off_t) SECTOR_SIZE;
+    if (lseek(isofd, off, SEEK_SET) < 0)
+        return SIGNATURE_MISSING;
+    ssize_t r = read(isofd, block, SIG_BLOCK_SIZE);
+    if (r < (ssize_t) strlen(SIG_BLOCK_MAGIC))
+        return SIGNATURE_MISSING;
+    block[r] = '\0';
+
+    const size_t magiclen = strlen(SIG_BLOCK_MAGIC);
+    if (memcmp(block, SIG_BLOCK_MAGIC, magiclen) != 0)
+        return SIGNATURE_MISSING;
+
+    /* The base64 payload is the next line after the magic, up to the newline
+     * or NUL padding. */
+    char *b64 = block + magiclen;
+    for (char *p = b64; *p; p++) {
+        if (*p == '\n' || *p == '\r') {
+            *p = '\0';
+            break;
+        }
+    }
+    if (b64[0] == '\0')
+        return SIGNATURE_MISSING;
+
+    return verify_b64(certpath, msg, msglen, b64, errstr);
 }
 
 /*

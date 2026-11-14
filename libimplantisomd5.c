@@ -29,8 +29,8 @@
  *   An ISO9660 image has a Primary Volume Descriptor (PVD) that contains a
  *   512-byte "Application Used" area (ECMA-119 8.4.32) which the filesystem
  *   itself ignores. This tool stores its metadata there, so an image can be
- *   verified later given nothing but the image (plus, for signatures, a
- *   detached .sig file and a certificate).
+ *   verified later given nothing but the image (and, for signatures, a
+ *   certificate; the signature itself is embedded in the image).
  *
  * THE RECORD FORMAT written into the 512-byte area is a sequence of
  * semicolon-terminated "KEY = VALUE" fields, padded with spaces:
@@ -54,11 +54,12 @@
  *   label; it is not a cryptographic proof. See certificate.c.
  *
  * OPTIONAL SIGNATURE (--sign-key / "signkey" argument)
- *   Cryptographically signs the md5 hex string with a private key and writes a
- *   detached base64 signature next to the image as "<iso>.sig". The signature
- *   is kept out of the PVD area on purpose: an RSA-2048 signature (512 hex
- *   chars) would not fit in the ~220 bytes of free space. checkisomd5 --cert
- *   verifies it using the certificate's public key. See signature.c.
+ *   Cryptographically signs the md5 hex string with a private key and writes
+ *   the base64 signature into the FIRST sector of the trailing SKIPSECTORS
+ *   region of the image. That region is excluded from the md5, so the embedded
+ *   signature does not change the md5 it covers, and no detached .sig file is
+ *   needed. checkisomd5 --cert reads that sector and verifies it using the
+ *   certificate's public key. See signature.c (signature_sign_block).
  *
  * ORDERING NOTE
  *   The certificate serial is extracted, and the signature is produced, BEFORE
@@ -104,7 +105,7 @@ static int writeAppData(unsigned char *const appdata, const char *const valstr, 
  *   iso       - path to the image, opened read/write.
  *   cert      - optional path to an X.509 certificate; its serial is embedded.
  *   signkey   - optional path to a PEM private key; if set, the md5 is signed
- *               and the signature is written to "<iso>.sig".
+ *               and the signature is embedded in the ISO's skip-sector region.
  *   supported - value for the RHLISOSTATUS flag.
  *   forceit   - overwrite an application-data area that is already in use.
  *   quiet     - suppress progress/diagnostic output when non-zero.
@@ -118,32 +119,18 @@ int implantISOFile(const char *iso, const char *cert, const char *signkey, int s
         return -1;
     }
 
-    /* The detached signature, if requested, is written next to the ISO as
-     * "<iso>.sig". */
-    char *sigpath = NULL;
-    if (signkey != NULL && signkey[0] != '\0') {
-        const size_t len = strlen(iso) + 4 + 1; /* ".sig" + NUL */
-        sigpath = malloc(len);
-        if (sigpath == NULL) {
-            *errstr = "Out of memory.";
-            close(isofd);
-            return -1;
-        }
-        snprintf(sigpath, len, "%s.sig", iso);
-    }
-
-    int rc = implantISOFD(isofd, cert, signkey, sigpath, supported, forceit, quiet, errstr);
+    int rc = implantISOFD(isofd, cert, signkey, supported, forceit, quiet, errstr);
     close(isofd);
-    free(sigpath);
     return rc;
 }
 
 /*
  * Core implant routine working on an already-open file descriptor.
- * Takes sigpath (the precomputed "<iso>.sig" path) separately because an fd
- * has no associated filename. All other parameters are as implantISOFile().
+ * Parameters are as implantISOFile(). When signkey is set, the signature over
+ * the md5 is written into the first sector of the trailing SKIPSECTORS region
+ * (which is excluded from the md5), not to a detached file.
  */
-int implantISOFD(int isofd, const char *cert, const char *signkey, const char *sigpath, int supported, int forceit, int quiet, char **errstr) {
+int implantISOFD(int isofd, const char *cert, const char *signkey, int supported, int forceit, int quiet, char **errstr) {
 
     /* If a certificate was supplied, extract its serial number up front so we
      * fail before touching the ISO when the certificate is unreadable. */
@@ -257,19 +244,23 @@ int implantISOFD(int isofd, const char *cert, const char *signkey, const char *s
     char hashsum[HASH_SIZE + 1];
     md5sum(hashsum, &hashctx);
 
-    /* If a signing key was supplied, sign the md5 hex string and write a
-     * detached signature file. Do this before modifying the ISO so a signing
-     * failure aborts cleanly. */
+    /* If a signing key was supplied, sign the md5 hex string and write the
+     * signature into the first sector of the trailing SKIPSECTORS region. That
+     * region is excluded from the md5, so writing the signature there does not
+     * change the md5 the signature covers. No detached .sig file is produced.
+     * signature_sign_block() signs before it writes, so a key/sign failure
+     * aborts without having altered the signature sector. */
     if (signkey != NULL && signkey[0] != '\0') {
-        if (sigpath == NULL) {
-            *errstr = "Internal error: no signature path.";
+        const off_t sig_sector = isosize / SECTOR_SIZE - SKIPSECTORS;
+        if (sig_sector < 0) {
+            *errstr = "ISO too small to hold an embedded signature.";
             return -1;
         }
-        if (signature_sign_file(signkey, (const unsigned char *) hashsum,
-                                 strlen(hashsum), sigpath, errstr) != 0)
+        if (signature_sign_block(signkey, (const unsigned char *) hashsum,
+                                 strlen(hashsum), isofd, sig_sector, errstr) != 0)
             return -1;
         if (!quiet)
-            printf("signature written to %s\n", sigpath);
+            printf("signature embedded in sector %lld\n", (long long) sig_sector);
     }
 
     if (!quiet) {

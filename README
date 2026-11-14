@@ -27,14 +27,16 @@ Cryptographic signing
 ----------------------
 The embedded md5sum can additionally be signed so that a consumer can prove
 the image's checksum was produced by the holder of a certificate's private
-key.  The signature is written to a detached file "<iso>.sig" (base64) next
-to the image, which keeps it independent of the limited application data
-area and works with RSA, ECDSA and Ed25519 keys.
+key.  The signature is embedded INSIDE the image: its base64 form is written
+into the first sector of the trailing skip-sectors region, which is excluded
+from the md5 so the signature does not change the checksum it covers.  No
+detached "<iso>.sig" file is produced, so the image is self-contained.  RSA,
+ECDSA and Ed25519 keys are supported.
 
 To sign while implanting::
 
   implantisomd5 --cert cert.pem --sign-key key.pem image.iso
-  # writes image.iso and image.iso.sig
+  # writes only image.iso (the signature is stored inside it)
 
 To verify the signature against the certificate's public key::
 
@@ -49,16 +51,16 @@ by the certificate holder.
 
 Distributing a signed image
 ---------------------------
-Verification requires THREE things, which must be provided together:
+Verification requires only TWO things, provided together:
 
-  1. the image            e.g.  rear.iso
-  2. the detached sig     e.g.  rear.iso.sig   (same directory, same base name)
-  3. the certificate      e.g.  cert.pem       (public; safe to distribute)
+  1. the image            e.g.  rear.iso   (the signature is embedded in it)
+  2. the certificate      e.g.  cert.pem   (public; safe to distribute)
 
-The signature file must sit next to the image with the exact name
-"<iso>.sig"; if it is moved away or renamed, "checkisomd5 --cert" reports
-"Signature status: MISSING".  The private key used for signing stays on the
-signing host and is NEVER needed (or shipped) for verification.
+Because the signature lives inside the image there is no separate file that
+can be lost or renamed.  If an image carries no embedded signature,
+"checkisomd5 --cert" reports "Signature status: MISSING".  The private key
+used for signing stays on the signing host and is NEVER needed (or shipped)
+for verification.
 
 Validating the certificate's trust chain
 ----------------------------------------
@@ -128,8 +130,8 @@ What to ship for a signed image like::
     host only (e.g. /etc/pki/tls/private/, mode 0600, root-only).  It is
     NEVER needed for verification and must not be packaged.
   * On the verifying side only checkisomd5 + openssl-libs are needed; the
-    detached <iso>.sig and the certificate must travel with the image (see
-    "Distributing a signed image" above).
+    certificate must travel with the image (the signature is already embedded
+    inside the image - see "Distributing a signed image" above).
 
 
 This fork of isomd5sum is hosted on GitHub. The source can be

@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 int implantISOFile(const char *iso, const char *cert, const char *signkey, int supported, int forceit, int quiet, char **errstr);
-int implantISOFD(int isofd, const char *cert, const char *signkey, const char *sigpath, int supported, int forceit, int quiet, char **errstr);
+int implantISOFD(int isofd, const char *cert, const char *signkey, int supported, int forceit, int quiet, char **errstr);
 
 #ifdef __cplusplus
 }

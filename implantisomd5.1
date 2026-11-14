@@ -10,7 +10,7 @@ This manual page documents briefly the \fBimplantisomd5\fR command. \fBimplantis
 .PP
 Optionally, the serial number of an X.509 certificate can also be embedded alongside the checksum.  The serial number is stored exactly as reported by \fBopenssl x509 \-noout \-serial\fR and can be read back with \fBcheckisomd5 \-\-md5sumonly\fR.
 .PP
-With \fB\-\-sign-key\fP the embedded MD5 checksum is cryptographically signed with the given private key and a detached base64 signature is written to \fIisofilename\fP.sig.  The signature can later be verified with \fBcheckisomd5 \-\-cert\fR using the corresponding certificate.  RSA, ECDSA and Ed25519 keys are supported.
+With \fB\-\-sign-key\fP the embedded MD5 checksum is cryptographically signed with the given private key and the base64 signature is embedded inside the image itself (in the first sector of the trailing skip-sectors region, which is excluded from the MD5), so no detached \fIisofilename\fP.sig file is produced.  The signature can later be verified with \fBcheckisomd5 \-\-cert\fR using the corresponding certificate.  RSA, ECDSA and Ed25519 keys are supported.
 .SH "OPTIONS"
 .IP "\fB\-f\fP, \fB\-\-force\fP" 10
 Force an existing checksum to be overwritten.
@@ -19,7 +19,7 @@ Indicate that the image will be written to a "supported" media, such as pressed 
 .IP "\fB\-\-cert\fP \fIcertfile\fP" 10
 Read the X.509 certificate from \fIcertfile\fP (PEM or DER) and embed its serial number into the ISO image.
 .IP "\fB\-\-sign-key\fP \fIkeyfile\fP" 10
-Sign the embedded MD5 checksum with the PEM private key in \fIkeyfile\fP and write a detached signature to \fIisofilename\fP.sig.
+Sign the embedded MD5 checksum with the PEM private key in \fIkeyfile\fP and embed the signature inside the image (in the skip-sectors region); no detached \fIisofilename\fP.sig file is written.
 .SH "SEE ALSO"
 .PP
 checkisomd5 (1).

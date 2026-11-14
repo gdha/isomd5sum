@@ -227,7 +227,7 @@ int main(int argc, const char **argv) {
                     exit_rc = 1;
                 break;
             case ISOMD5SUM_SIG_MISSING:
-                fprintf(stderr, "Signature status: MISSING (no %s.sig file found).\n", args[0]);
+                fprintf(stderr, "Signature status: MISSING (no embedded signature found in the ISO).\n");
                 if (exit_rc == 0)
                     exit_rc = 1;
                 break;

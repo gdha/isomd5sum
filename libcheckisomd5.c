@@ -181,8 +181,9 @@ int printMD5SUM(const char *file) {
  *      a trusted CA via signature_verify_chain(); if it does not, return
  *      ISOMD5SUM_SIG_UNTRUSTED without trusting the key,
  *   1. parse the PVD to recover that embedded md5 string (the signed message),
- *   2. locate the detached signature at "<file>.sig",
- *   3. hand both, plus the certificate, to signature_verify_file().
+ *   2. locate the signature in the first sector of the trailing SKIPSECTORS
+ *      region (computed from the image size and skipsectors),
+ *   3. hand both, plus the certificate, to signature_verify_block().
  *
  * This is independent of the md5 media check in mediaCheckFile(): callers
  * typically run the media check first (does the content match the embedded
@@ -214,9 +215,9 @@ int verifyISOCertChain(const char *file, const char *certpath, const char *capat
         return ISOMD5SUM_SIG_ERROR;
 
     struct volume_info *const info = parsepvd(isofd);
-    close(isofd);
     if (info == NULL || info->hashsum[0] == '\0') {
         free(info);
+        close(isofd);
         return ISOMD5SUM_SIG_NO_MD5;
     }
 
@@ -224,19 +225,22 @@ int verifyISOCertChain(const char *file, const char *certpath, const char *capat
     char msg[HASH_SIZE + 1];
     strncpy(msg, info->hashsum, sizeof(msg));
     msg[sizeof(msg) - 1] = '\0';
-    free(info);
 
-    /* The detached signature lives next to the ISO as "<file>.sig". */
-    const size_t len = strlen(file) + 4 + 1;
-    char *sigpath = malloc(len);
-    if (sigpath == NULL)
+    /* The signature lives in the first sector of the trailing SKIPSECTORS
+     * region (the same region excluded from the md5), not in a detached file.
+     * Compute that sector from the image size and skipsectors recorded in the
+     * PVD. */
+    const off_t sig_sector = info->isosize / SECTOR_SIZE - info->skipsectors;
+    free(info);
+    if (sig_sector < 0) {
+        close(isofd);
         return ISOMD5SUM_SIG_ERROR;
-    snprintf(sigpath, len, "%s.sig", file);
+    }
 
     char *errstr = NULL;
-    int rc = signature_verify_file(certpath, (const unsigned char *) msg,
-                                   strlen(msg), sigpath, &errstr);
-    free(sigpath);
+    int rc = signature_verify_block(certpath, (const unsigned char *) msg,
+                                    strlen(msg), isofd, sig_sector, &errstr);
+    close(isofd);
 
     switch (rc) {
         case SIGNATURE_VALID:

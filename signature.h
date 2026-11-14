@@ -21,6 +21,7 @@
 #define ISOMD5_SIGNATURE_H
 
 #include <stddef.h>
+#include <sys/types.h> /* off_t */
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,7 +31,7 @@ extern "C" {
 enum signature_status {
     SIGNATURE_VALID = 0,     /* signature verified against the certificate    */
     SIGNATURE_INVALID = 1,   /* signature present but does not verify          */
-    SIGNATURE_MISSING = 2,   /* no detached signature file found               */
+    SIGNATURE_MISSING = 2,   /* no signature found (no file / no block present) */
     SIGNATURE_ERROR = 3,     /* I/O / crypto error (see errstr)                */
     SIGNATURE_UNTRUSTED = 4  /* cert does not chain to the supplied CA         */
 };
@@ -57,6 +58,32 @@ int signature_sign_file(const char *keypath, const unsigned char *msg, size_t ms
  */
 int signature_verify_file(const char *certpath, const unsigned char *msg, size_t msglen,
                           const char *sigpath, char **errstr);
+
+/*
+ * Sign the message (msglen bytes) with the private key in keypath (PEM) and
+ * write the base64 signature as a magic-prefixed block into sector `sector`
+ * of the already-open ISO file descriptor isofd. The block is one SECTOR_SIZE
+ * sector: the line "ISOMD5-SIG-v1\n", the base64 signature, a newline, then
+ * NUL padding. The caller is responsible for choosing a sector that is
+ * EXCLUDED from the ISO md5 (i.e. within the trailing SKIPSECTORS region), so
+ * that writing it does not invalidate the md5 the signature covers.
+ *
+ * Returns 0 on success, -1 on failure (sets *errstr to a static message).
+ */
+int signature_sign_block(const char *keypath, const unsigned char *msg, size_t msglen,
+                         int isofd, off_t sector, char **errstr);
+
+/*
+ * Verify the embedded signature block at sector `sector` of the open ISO file
+ * descriptor isofd over the message (msglen bytes) using the public key from
+ * the X.509 certificate in certpath. If the sector does not carry the magic
+ * header (e.g. it is still all-zero padding), SIGNATURE_MISSING is returned so
+ * callers can distinguish "no signature present" from a verification failure.
+ *
+ * Returns one of enum signature_status. On SIGNATURE_ERROR, *errstr is set.
+ */
+int signature_verify_block(const char *certpath, const unsigned char *msg, size_t msglen,
+                           int isofd, off_t sector, char **errstr);
 
 /*
  * Validate the trust chain of the X.509 certificate in certpath against the
