@@ -1,0 +1,24 @@
+# --- ISO md5sum signing (add to /usr/share/rear/conf/default.conf, ISO section,
+# --- e.g. just after the ISO_PREFIX definition) -----------------------------
+#
+# ISO signature: embed a cryptographic signature of the ISO's md5sum into the
+# ISO image itself (no detached .sig file) using a patched isomd5sum that
+# supports "implantisomd5 --cert ... --sign-key ..." and
+# "checkisomd5 --cert ...".
+# ISO_SIGNING_KEY is a PEM private key used to sign; ISO_SIGNING_CERT is the
+# matching X.509 certificate whose serial is recorded in the ISO and whose
+# public key verifies the signature at recovery time. Leave both empty to
+# disable signing (only the md5sum is implanted, as before).
+ISO_SIGNING_CERT=""
+ISO_SIGNING_KEY=""
+# Optional CA bundle (PEM, "openssl verify -CAfile" style) and/or CA directory
+# ("-CApath" c_rehash style) used at recovery time to validate that
+# ISO_SIGNING_CERT chains to a trusted CA before its key is trusted. Leave
+# empty to verify the signature against the certificate's key without a
+# trust-chain check.
+ISO_SIGNING_CA_FILE=""
+ISO_SIGNING_CA_DIR=""
+
+# Example site configuration (put in /etc/rear/local.conf or /etc/rear/site.conf):
+#   ISO_SIGNING_CERT="/etc/pki/tls/certs/cert.pem"
+#   ISO_SIGNING_KEY="/etc/pki/tls/private/cert.key"
